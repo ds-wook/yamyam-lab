@@ -45,13 +45,19 @@ if __name__ == "__main__":
     logger = setup_logger(args.log_path)
 
     try:
-        num_factors = 32
-        data = train_test_split_stratify(test_size=0.2,
+        logger.info(f"batch size: {args.batch_size}")
+        logger.info(f"learning rate: {args.lr}")
+        logger.info(f"regularization: {args.regularization}")
+        logger.info(f"epochs: {args.epochs}")
+        logger.info(f"number of factors for user / item embedding: {args.num_factors}")
+        logger.info(f"test ratio: {args.test_ratio}")
+        logger.info(f"patience for watching validation loss: {args.patience}")
+        data = train_test_split_stratify(test_size=args.test_ratio,
                                          min_reviews=3,
                                          X_columns=["diner_idx", "reviewer_id"],
                                          y_columns=["reviewer_review_score"])
         train_dataloader, val_dataloader = prepare_torch_dataloader(data["X_train"], data["y_train"], data["X_val"], data["y_val"])
-        model = SVDWithBias(data["num_reviewers"], data["num_diners"], num_factors, mu = data["y_train"].mean())
+        model = SVDWithBias(data["num_users"], data["num_diners"], args.num_factors, mu = data["y_train"].mean())
 
         optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
@@ -63,15 +69,18 @@ if __name__ == "__main__":
             # training
             model.train()
             tr_loss = 0.0
-            for data in train_dataloader:
-                X_train, y_train = data
+            for (X_train, y_train) in train_dataloader:
                 diners, users = X_train[:, 0], X_train[:, 1]
                 optimizer.zero_grad()
                 y_pred = model(users, diners)
                 loss = svd_loss(pred=y_pred,
                                 true=y_train,
-                                params=model.parameters(),
-                                regularization=args.regularization)
+                                params=[param.data for param in model.parameters()],
+                                regularization=args.regularization,
+                                user_idx=users,
+                                diner_idx=diners,
+                                num_users=data["num_users"],
+                                num_diners=data["num_diners"])
                 loss.backward()
                 optimizer.step()
 
@@ -83,20 +92,25 @@ if __name__ == "__main__":
             model.eval()
             with torch.no_grad():
                 val_loss = 0.0
-                for data in val_dataloader:
-                    X_val, y_val = data
+                for (X_val, y_val) in val_dataloader:
                     diners, users = X_val[:, 0], X_val[:, 1]
                     y_pred = model(users, diners)
                     loss = svd_loss(pred=y_pred,
                                     true=y_val,
-                                    params=model.parameters(),
-                                    regularization=args.regularization)
+                                    params=[param.data for param in model.parameters()],
+                                    regularization=args.regularization,
+                                    user_idx=users,
+                                    diner_idx=diners,
+                                    num_users=data["num_users"],
+                                    num_diners=data["num_diners"])
 
                     val_loss += loss.item()
                 val_loss = round(val_loss / len(val_dataloader), 6)
 
             logger.info(f"Train Loss: {tr_loss}")
             logger.info(f"Validation Loss: {val_loss}")
+
+            # todo: calculate ndcg, map at every epoch
 
             if best_loss > val_loss:
                 prev_best_loss = best_loss

@@ -80,9 +80,9 @@ def train_test_split_stratify(test_size,
         "X_val": torch.tensor(val[X_columns].values),
         "y_val": torch.tensor(val[y_columns].values, dtype=torch.float32),
         "num_diners": num_diners,
-        "num_reviewers": num_reviewers,
+        "num_users": num_reviewers,
         "diner_mapping": diner_mapping,
-        "reviewer_mapping": reviewer_mapping
+        "user_mapping": reviewer_mapping
     }
 
 
