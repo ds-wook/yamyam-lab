@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import hydra
 from omegaconf import DictConfig
 
@@ -23,6 +25,8 @@ def _main(cfg: DictConfig):
 
     # train model
     ranker = trainer.fit(X_train, y_train, X_test, y_test)
+
+    ranker.save_model(Path(cfg.models.model_path) / f"{cfg.models.results}.txt")
 
 
 if __name__ == "__main__":
