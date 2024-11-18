@@ -70,7 +70,7 @@ def load_and_prepare_lightgbm_data(
     diner = pd.read_csv(os.path.join(DATA_PATH, "diner_df_20241118_yamyam.csv"), index_col=0)
     review = pd.DataFrame()
     for review_data_path in review_data_paths:
-        review = pd.concat([review, pd.read_csv(review_data_path)], axis=0)
+        review = pd.concat([review, pd.read_csv(review_data_path, index_col=0)], axis=0)
     
 
     # make time feature
