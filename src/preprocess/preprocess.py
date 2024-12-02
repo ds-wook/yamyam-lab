@@ -1,8 +1,10 @@
 import os
 import pandas as pd
 from sklearn.model_selection import train_test_split
+
 import torch
 from torch.utils.data import DataLoader, Dataset
+from torch_geometric.data import Data
 
 DATA_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -36,7 +38,8 @@ def train_test_split_stratify(test_size,
                               X_columns=["diner_idx", "reviewer_id"],
                               y_columns=["reviewer_review_score"],
                               random_state=42,
-                              stratify="reviewer_id"):
+                              stratify="reviewer_id",
+                              pg_model=False):
     """
     test_size: ratio of test dataset
     min_reviews: minimum number of reviews for each reviewer
@@ -45,6 +48,7 @@ def train_test_split_stratify(test_size,
     use_columns: columns to use in review data
     random_state: random seed for reproducibility
     stratify: column to stratify review data
+    pg_model: indicator whether using torch_geometric model or not
     """
     # load data
     review_1 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241122_part_1.csv"))
@@ -63,7 +67,11 @@ def train_test_split_stratify(test_size,
 
     # mapping diner_idx and reviewer_id
     diner_mapping = {diner_idx: i for i, diner_idx in enumerate(diner_idxs)}
-    reviewer_mapping = {reviewer_id: i for i, reviewer_id in enumerate(reviewer_ids)}
+    if pg_model == True:
+        # each node index in torch_geometric should be unique
+        reviewer_mapping = {reviewer_id: (i+num_diners) for i, reviewer_id in enumerate(reviewer_ids)}
+    else:
+        reviewer_mapping = {reviewer_id: i for i, reviewer_id in enumerate(reviewer_ids)}
     review["diner_idx"] = review["diner_idx"].map(diner_mapping)
     review["reviewer_id"] = review["reviewer_id"].map(reviewer_mapping)
 
@@ -96,3 +104,28 @@ def prepare_torch_dataloader(X_train, y_train, X_val, y_val, batch_size=128, ran
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=seed)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, generator=seed)
     return train_dataloader, val_dataloader
+
+
+def prepare_torch_geometric_data(X_train, X_val, num_diners, num_reviewers):
+    # check feature data has only two columns, e.g., diner_id and reviewer_id
+    assert X_train.shape[1] == 2
+    assert X_val.shape[1] == 2
+    # make edges for undirected graph
+    edge_index_train = torch.concat(
+        (X_train, X_train[:, [1, 0]]),
+        axis=0
+    ).T
+    edge_index_val = torch.concat(
+        (X_val, X_val[:, [1, 0]]),
+        axis=0
+    ).T
+    # make pg data
+    train = Data(
+        edge_index=edge_index_train,
+        num_nodes=num_diners+num_reviewers
+    )
+    val = Data(
+        edge_index=edge_index_val,
+        num_nodes=num_diners + num_reviewers
+    )
+    return train, val
