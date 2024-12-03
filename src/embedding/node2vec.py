@@ -55,7 +55,8 @@ if __name__ == "__main__":
         data = train_test_split_stratify(test_size=args.test_ratio,
                                          min_reviews=3,
                                          X_columns=["diner_idx", "reviewer_id"],
-                                         y_columns=["reviewer_review_score"])
+                                         y_columns=["reviewer_review_score"],
+                                         pg_model=True)
         train, val = prepare_torch_geometric_data(
             X_train=data["X_train"],
             X_val=data["X_val"],
