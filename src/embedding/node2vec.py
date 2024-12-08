@@ -1,3 +1,4 @@
+import pickle
 import torch
 from torch_geometric.nn import Node2Vec as Node2VecPG
 
@@ -9,8 +10,11 @@ torch.set_default_device(device.type)
 
 
 class Node2Vec(BaseEmbedding):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, user_ids, diner_ids):
+        super().__init__(
+            user_ids=user_ids,
+            diner_ids=diner_ids
+        )
 
     def initialize(self, edge_index, **kwargs):
         model = Node2VecPG(
@@ -63,7 +67,10 @@ if __name__ == "__main__":
             num_diners=data["num_diners"],
             num_reviewers=data["num_users"],
         )
-        node2vec = Node2Vec()
+        node2vec = Node2Vec(
+            user_ids=torch.tensor(list(data["user_mapping"].values())),
+            diner_ids=torch.tensor(list(data["diner_mapping"].values())),
+        )
         model, optimizer = node2vec.initialize(
             edge_index=train.edge_index,
             **vars(args)
@@ -71,6 +78,17 @@ if __name__ == "__main__":
         for epoch in range(args.epochs):
             model, train_loss = node2vec.train(model, optimizer, batch_size=args.batch_size)
             logger.info(f"epoch {epoch}: train loss {train_loss:.4f}")
+
+            recommendations = node2vec.recommend(model, data["X_train"], data["X_val"], filter_already_liked=True)
+
+            for K in node2vec.metric_at_K.keys():
+                map = node2vec.metric_at_K[K]["map"]
+                ndcg = node2vec.metric_at_K[K]["ndcg"]
+                count = node2vec.metric_at_K[K]["count"]
+                logger.info(f"maP@{K}: {map} with {count} users out of all {node2vec.num_users} users")
+                logger.info(f"ndcg@{K}: {ndcg} with {count} users out of all {node2vec.num_users} users")
+
+        pickle.dump(node2vec, open("node2vec.pkl", "wb"))
     except:
         logger.error(traceback.format_exc())
         raise

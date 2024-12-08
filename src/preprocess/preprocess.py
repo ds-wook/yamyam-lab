@@ -58,6 +58,11 @@ def train_test_split_stratify(test_size,
     del review_1
     del review_2
 
+    # filter reviewer who wrote reviews more than min_reviews
+    reviewer2review_cnt = review["reviewer_id"].value_counts().to_dict()
+    reviewer_id_over = [reviewer_id for reviewer_id, cnt in reviewer2review_cnt.items() if cnt >= min_reviews]
+    review = review[lambda x: x["reviewer_id"].isin(reviewer_id_over)]
+
     # store unique number of diner and reviewer
     diner_idxs = sorted(list(review["diner_idx"].unique()))
     reviewer_ids = sorted(list(review["reviewer_id"].unique()))
@@ -75,14 +80,10 @@ def train_test_split_stratify(test_size,
     review["diner_idx"] = review["diner_idx"].map(diner_mapping)
     review["reviewer_id"] = review["reviewer_id"].map(reviewer_mapping)
 
-    # filter reviewer who wrote reviews more than min_reviews
-    reviewer2review_cnt = review["reviewer_id"].value_counts().to_dict()
-    reviewer_id_over = [reviewer_id for reviewer_id, cnt in reviewer2review_cnt.items() if cnt >= min_reviews]
-    review_over = review[lambda x: x["reviewer_id"].isin(reviewer_id_over)]
-    train, val = train_test_split(review_over,
+    train, val = train_test_split(review,
                                    test_size=test_size,
                                    random_state=random_state,
-                                   stratify=review_over[stratify])
+                                   stratify=review[stratify])
     return {
         "X_train": torch.tensor(train[X_columns].values),
         "y_train": torch.tensor(train[y_columns].values, dtype=torch.float32),
