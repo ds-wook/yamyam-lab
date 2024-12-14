@@ -47,7 +47,7 @@ class BaseEmbedding(ABC):
         val_liked = convert_tensor(X_val, list)
         user_locations = get_user_locations(X_val)
         res = {}
-        metric_at_K = {k: {"map": 0, "ndcg": 0, "count": 0} for k in top_K}
+        metric_at_K = {k: {"map": 0, "ndcg": 0, "count": 0, "ranked_prec": 0} for k in top_K}
 
         # filter item_id in train dataset
         if filter_already_liked:
