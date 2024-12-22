@@ -138,7 +138,10 @@ if __name__ == "__main__":
         diner_mapping = data["diner_mapping"]
         nearby_candidates_mapping = {}
         for ref_id, nearby_id in near_diners.items():
-            nearby_id_mapping = [diner_mapping[diner_id] for diner_id in nearby_id]
+            # only get diner appeared in train/val dataset
+            if diner_mapping.get(ref_id) is None:
+                continue
+            nearby_id_mapping = [diner_mapping.get(diner_id) for diner_id in nearby_id if diner_mapping.get(diner_id) != None]
             nearby_candidates_mapping[diner_mapping[ref_id]] = nearby_id_mapping
 
         # train model
