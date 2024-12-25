@@ -333,9 +333,10 @@ if __name__ == "__main__":
             logger.info(f"ndcg result: {'|'.join(ndcgs)}")
             logger.info(f"ranked_prec result: {'|'.join(ranked_precs)}")
             logger.info(f"near_candidate_recall result: {'|'.join(recalls)}")
-        torch.save(model.state_dict(), "node2vec.pt")
 
-        logger.info("successfully saved node2vec torch model")
+            torch.save(model.state_dict(), "node2vec.pt")
+
+            logger.info(f"successfully saved node2vec torch model: epoch {epoch}")
     except:
         logger.error(traceback.format_exc())
         raise
