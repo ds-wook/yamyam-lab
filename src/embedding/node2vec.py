@@ -13,8 +13,8 @@ torch.set_default_device(device.type)
 from candidate.near import NearCandidateGenerator
 from embedding.base_embedding import BaseEmbedding
 from tools.generate_walks import generate_walks, precompute_probabilities
-from constant.preprocess import MIN_REVIEWS
-from constant.candidate import MAX_DISTANCE_KM
+from constant.preprocess.preprocess import MIN_REVIEWS
+from constant.candidate.near import MAX_DISTANCE_KM
 
 
 class Node2Vec(BaseEmbedding):

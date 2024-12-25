@@ -9,7 +9,7 @@ from collections import defaultdict
 import torch
 from torch import Tensor
 
-from constant.node2vec import TransitionKey
+from constant.embedding.node2vec import TransitionKey
 """
 source: https://github.com/eliorc/node2vec/blob/master/node2vec/parallel.py
 """

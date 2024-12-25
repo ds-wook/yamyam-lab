@@ -14,6 +14,8 @@ from evaluation.metric import ranking_metrics_at_k, ranked_precision
 from tools.parse_args import parse_args
 from tools.logger import setup_logger
 from tools.utils import convert_tensor
+from constant.preprocess.preprocess import MIN_REVIEWS
+from constant.candidate.near import MAX_DISTANCE_KM
 
 # set cpu or cuda for default option
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -183,7 +185,7 @@ if __name__ == "__main__":
         logger.info(f"test ratio: {args.test_ratio}")
         logger.info(f"patience for watching validation loss: {args.patience}")
         data = train_test_split_stratify(test_size=args.test_ratio,
-                                         min_reviews=3,
+                                         min_reviews=MIN_REVIEWS,
                                          X_columns=["diner_idx", "reviewer_id"],
                                          y_columns=["reviewer_review_score"])
         train_dataloader, val_dataloader = prepare_torch_dataloader(data["X_train"], data["y_train"], data["X_val"], data["y_val"])
@@ -193,7 +195,7 @@ if __name__ == "__main__":
 
         # get near 1km diner_ids
         candidate_generator = NearCandidateGenerator()
-        near_diners = candidate_generator.get_near_candidates_for_all_diners(max_distance_km=1)
+        near_diners = candidate_generator.get_near_candidates_for_all_diners(max_distance_km=MAX_DISTANCE_KM)
         # convert diner_ids
         diner_mapping = data["diner_mapping"]
         nearby_candidates_mapping = {}
