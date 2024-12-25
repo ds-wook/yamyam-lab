@@ -72,20 +72,29 @@ def train_test_split_stratify(
         Dataset, statistics, and mapping information which could be used when training model.
     """
     # load data
-    review_1 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241204_part_1.csv"))
-    review_2 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241204_part_2.csv"))
-    review_3 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241204_part_3.csv"))
-    review_4 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241204_part_4.csv"))
-    review = pd.concat([review_1, review_2, review_3, review_4], axis=0)[X_columns + y_columns]
+    review_1 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_1.csv"))
+    review_2 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_2.csv"))
+    review_3 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_3.csv"))
+    review_4 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_4.csv"))
+    review_5 = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_5.csv"))
+    review = pd.concat([review_1, review_2, review_3, review_4, review_5], axis=0)[X_columns + y_columns]
     del review_1
     del review_2
     del review_3
     del review_4
+    del review_5
 
     # filter reviewer who wrote reviews more than min_reviews
     reviewer2review_cnt = review["reviewer_id"].value_counts().to_dict()
     reviewer_id_over = [reviewer_id for reviewer_id, cnt in reviewer2review_cnt.items() if cnt >= min_reviews]
     review = review[lambda x: x["reviewer_id"].isin(reviewer_id_over)]
+
+    # filter diner in review dataset not existing in diner dataset
+    # TODO: add this step as data validation
+    diner = pd.read_csv(os.path.join(DATA_PATH, "diner/diner_df_20241219_yamyam.csv"))
+    diner_idx_both_exist = np.array(list(set(review["diner_idx"].unique()) & set(diner["diner_idx"].unique())))
+    review = review[lambda x: x["diner_idx"].isin(diner_idx_both_exist)]
+
 
     # store unique number of diner and reviewer
     diner_idxs = sorted(list(review["diner_idx"].unique()))

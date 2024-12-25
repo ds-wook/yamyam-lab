@@ -16,7 +16,7 @@ DATA_PATH = os.path.join(
 
 class NearCandidateGenerator:
     def __init__(self):
-        diners = pd.read_csv(os.path.join(DATA_PATH, "diner/diner_df_20241211_yamyam.csv"))
+        diners = pd.read_csv(os.path.join(DATA_PATH, "diner/diner_df_20241219_yamyam.csv"))
         diner_ids = diners["diner_idx"].unique()
         self.mapping_diner_idx = {i:id for i,id in enumerate(diner_ids)}
 
