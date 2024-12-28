@@ -186,12 +186,12 @@ class BaseEmbedding(nn.Module):
 
                     if len(locations) > k:
                         # ranked_prec value higher than 0 indicates hitting of true y
-                        self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL] += (self.metric_at_k[k][Metric.RANKED_PREC.value] > 0.)
+                        self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL.value] += (self.metric_at_k[k][Metric.RANKED_PREC.value] > 0.)
                         self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL_COUNT.value] += 1
 
         for k in top_k_values:
             self.metric_at_k[k][Metric.RANKED_PREC.value] /= self.metric_at_k[k][Metric.NEAR_CANDIDATE_PREC_COUNT.value]
-            self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL] /= self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL_COUNT.value]
+            self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL.value] /= self.metric_at_k[k][Metric.NEAR_CANDIDATE_RECALL_COUNT.value]
 
     def _recommend(
             self,
