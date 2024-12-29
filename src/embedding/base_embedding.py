@@ -54,9 +54,10 @@ class BaseEmbedding(nn.Module):
             self,
             X_train: Tensor,
             X_val: Tensor,
-            max_k: int,
+            top_k_values: List[int],
+            nearby_candidates: Dict[int, list],
             filter_already_liked: bool = True,
-        ) -> Tuple[Tensor, Tensor, Tensor]:
+        ) -> None:
         """
         Computes score between all users and all diners.
         Suppose number of users is U and number of diners is D.
@@ -74,29 +75,56 @@ class BaseEmbedding(nn.Module):
             top_k_score (number_of_users x max_k): associated score with top_k_id.
             scores (number_of_users x number_of_diners): calculated scores with all users and diners.
         """
-        user_embeds = self.embedding(self.user_ids)
+        max_k = max(top_k_values)
+        batch_size = 1000
+        start = 0
+        end = start + batch_size
         diner_embeds = self.embedding(self.diner_ids)
-        scores = torch.mm(user_embeds, diner_embeds.t())
 
-        # TODO: change for loop to more efficient program
-        # filter diner id already liked by user in train dataset
-        if filter_already_liked:
-            for diner_id, user_id in X_train:
-                diner_id = diner_id.item()
-                user_id = user_id.item()
-                # not recommend already chosen item_id by setting prediction value as -inf
-                scores[user_id - self.num_diners][diner_id] = -float("inf")
         # store true diner id visited by user in validation dataset
+        self.train_liked = convert_tensor(X_train, list)
         self.val_liked = convert_tensor(X_val, list)
 
-        top_k = torch.topk(scores, k=max_k)
-        top_k_id = top_k.indices
-        top_k_score = top_k.values
+        while start < self.num_users:
+            batch_users = self.user_ids[start:end]
+            user_embeds = self.embedding(batch_users)
+            scores = torch.mm(user_embeds, diner_embeds.t())
 
-        return top_k_id, top_k_score, scores
+            # TODO: change for loop to more efficient program
+            # filter diner id already liked by user in train dataset
+            if filter_already_liked:
+                for i, user_id in enumerate(batch_users):
+                    already_liked_ids = self.train_liked[user_id.item()]
+                    for diner_id in already_liked_ids:
+                        scores[i][diner_id] = -float("inf")
+
+            top_k = torch.topk(scores, k=max_k)
+            top_k_id = top_k.indices
+
+            self.calculate_no_candidate_metric(
+                user_ids=batch_users,
+                top_k_id=top_k_id,
+                top_k_values=top_k_values
+            )
+
+            self.calculate_near_candidate_metric(
+                user_ids=batch_users,
+                scores=scores,
+                nearby_candidates=nearby_candidates,
+                top_k_values=top_k_values,
+            )
+
+            start += batch_size
+
+        for k in top_k_values:
+            self.metric_at_k[k][Metric.MAP.value] /= self.metric_at_k[k][Metric.COUNT.value]
+            self.metric_at_k[k][Metric.NDCG.value] /= self.metric_at_k[k][Metric.COUNT.value]
+            self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] /= self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value]
+            self.metric_at_k[k][NearCandidateMetric.RECALL.value] /= self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
 
     def calculate_no_candidate_metric(
             self,
+            user_ids: Tensor,
             top_k_id: Tensor,
             top_k_values: List[int],
         ) -> None:
@@ -127,12 +155,12 @@ class BaseEmbedding(nn.Module):
 
         # TODO: change for loop to more efficient program
         # calculate metric
-        for user_id in self.user_ids:
+        for i, user_id in enumerate(user_ids):
             user_id = user_id.item()
             val_liked_item_id = np.array(self.val_liked[user_id])
 
             for k in top_k_values:
-                pred_liked_item_id = top_k_id[user_id - self.num_diners][:k].detach().cpu().numpy()
+                pred_liked_item_id = top_k_id[i][:k].detach().cpu().numpy()
                 if len(val_liked_item_id) >= k:
                     metric = ranking_metrics_at_k(val_liked_item_id, pred_liked_item_id)
                     self.metric_at_k[k][Metric.MAP.value] += metric[Metric.AP.value]
@@ -140,12 +168,9 @@ class BaseEmbedding(nn.Module):
                     self.metric_at_k[k][Metric.RECALL.value] += metric[Metric.RECALL.value]
                     self.metric_at_k[k][Metric.COUNT.value] += 1
 
-        for k in top_k_values:
-            self.metric_at_k[k][Metric.MAP.value] /= self.metric_at_k[k][Metric.COUNT.value]
-            self.metric_at_k[k][Metric.NDCG.value] /= self.metric_at_k[k][Metric.COUNT.value]
-
     def calculate_near_candidate_metric(
             self,
+            user_ids: Tensor,
             scores: Tensor,
             nearby_candidates: Dict[int, list],
             top_k_values: List[int],
@@ -165,7 +190,7 @@ class BaseEmbedding(nn.Module):
         """
         # TODO: change for loop to more efficient program
         # calculate metric
-        for user_id in self.user_ids:
+        for i, user_id in enumerate(user_ids):
             user_id = user_id.item()
             for k in top_k_values:
                 # diner_ids visited by user in validation dataset
@@ -173,7 +198,7 @@ class BaseEmbedding(nn.Module):
                 for location in locations:
                     # filter only near diner
                     near_diner_ids = torch.tensor(nearby_candidates[location]).to(DEVICE)
-                    near_diner_scores = scores[user_id - self.num_diners][near_diner_ids]
+                    near_diner_scores = scores[i][near_diner_ids]
 
                     # sort indices using predicted score
                     sorted_indices = torch.argsort(near_diner_scores, descending=True)
@@ -193,10 +218,6 @@ class BaseEmbedding(nn.Module):
                         # ranked_prec value higher than 0 indicates hitting of true y
                         self.metric_at_k[k][NearCandidateMetric.RECALL.value] += (self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] > 0.)
                         self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value] += 1
-
-        for k in top_k_values:
-            self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] /= self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value]
-            self.metric_at_k[k][NearCandidateMetric.RECALL.value] /= self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
 
     def _recommend(
             self,

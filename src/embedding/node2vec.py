@@ -305,22 +305,12 @@ if __name__ == "__main__":
 
             top_k_values = [3, 7, 10, 20, 100, 300, 500]
 
-            top_k_id, top_k_score, scores = model.recommend_all(
+            model.recommend_all(
                 X_train=data["X_train"],
                 X_val=data["X_val"],
-                max_k=max(top_k_values),
+                top_k_values=top_k_values,
+                nearby_candidates=nearby_candidates_mapping,
                 filter_already_liked=True
-            )
-
-            model.calculate_no_candidate_metric(
-                top_k_id=top_k_id,
-                top_k_values=top_k_values,
-            )
-
-            model.calculate_near_candidate_metric(
-                scores=scores,
-                top_k_values=top_k_values,
-                nearby_candidates=nearby_candidates_mapping
             )
 
             maps = []
@@ -351,8 +341,8 @@ if __name__ == "__main__":
 
             logger.info(f"successfully saved node2vec torch model: epoch {epoch}")
 
-            # delete tensors to reserve storage in gpu
-            del top_k_id, top_k_score, scores
+            # # delete tensors to reserve storage in gpu
+            # del top_k_id, top_k_score, scores
     except:
         logger.error(traceback.format_exc())
         raise
