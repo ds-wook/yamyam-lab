@@ -142,10 +142,10 @@ def load_and_prepare_lightgbm_data(
     for col in ["min_price", "max_price", "mean_price", "median_price", "menu_count"]:
         diner[col] = diner[col].fillna(diner[col].median())
 
-    # review = pd.concat(
-    #     [pd.read_csv(review_data_path) for review_data_path in review_data_paths]
-    # )
-    review = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_5.csv"))
+    review = pd.concat(
+        [pd.read_csv(review_data_path) for review_data_path in review_data_paths]
+    )
+    # review = pd.read_csv(os.path.join(DATA_PATH, "review/review_df_20241219_part_5.csv"))
     review["reviewer_review_cnt"] = review["reviewer_review_cnt"].apply(
         lambda x: np.int32(str(x).replace(",", ""))
     )
