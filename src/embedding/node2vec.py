@@ -270,7 +270,6 @@ if __name__ == "__main__":
             num_negative_samples=args.num_negative_samples,
             q=args.q,
             p=args.p,
-            inference=True,
         ).to(DEVICE)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr)
 
