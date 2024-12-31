@@ -16,6 +16,7 @@ from constant.preprocess.preprocess import MIN_REVIEWS
 from constant.candidate.near import MAX_DISTANCE_KM
 from constant.device.device import DEVICE
 from constant.metric.metric import Metric, NearCandidateMetric
+from constant.evaluation.recommend import TOP_K_VALUES_FOR_PRED,TOP_K_VALUES_FOR_CANDIDATE
 
 
 class Node2Vec(BaseEmbedding):
@@ -269,6 +270,7 @@ if __name__ == "__main__":
             num_negative_samples=args.num_negative_samples,
             q=args.q,
             p=args.p,
+            inference=True,
         ).to(DEVICE)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr)
 
@@ -292,18 +294,19 @@ if __name__ == "__main__":
             num_workers=get_num_workers(),
         )
         for epoch in range(args.epochs):
-            total_loss = 0
-            for pos_rw, neg_rw in loader:
-                optimizer.zero_grad()
-                loss = model.loss(pos_rw.to(DEVICE), neg_rw.to(DEVICE))
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-            total_loss /= len(loader)
+            logger.info(f"################## epoch {epoch} ##################")
+            # total_loss = 0
+            # for pos_rw, neg_rw in loader:
+            #     optimizer.zero_grad()
+            #     loss = model.loss(pos_rw.to(DEVICE), neg_rw.to(DEVICE))
+            #     loss.backward()
+            #     optimizer.step()
+            #     total_loss += loss.item()
+            # total_loss /= len(loader)
+            #
+            # logger.info(f"epoch {epoch}: train loss {total_loss:.4f}")
 
-            logger.info(f"epoch {epoch}: train loss {total_loss:.4f}")
-
-            top_k_values = [3, 7, 10, 20, 100, 300, 500]
+            top_k_values = TOP_K_VALUES_FOR_PRED + TOP_K_VALUES_FOR_CANDIDATE
 
             model.recommend_all(
                 X_train=data["X_train"],
@@ -318,44 +321,46 @@ if __name__ == "__main__":
             recalls = []
             ranked_precs = []
             candidate_recalls = []
-            for k in model.metric_at_k.keys():
+
+            for k in top_k_values_for_pred:
                 # no candidate metric
                 map = round(model.metric_at_k[k][Metric.MAP.value], 5)
                 ndcg = round(model.metric_at_k[k][Metric.NDCG.value], 5)
                 recall = round(model.metric_at_k[k][Metric.RECALL.value], 5)
-                count = model.metric_at_k[k][Metric.COUNT.value]
-
-                # near candidate metric
                 ranked_prec = round(model.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value], 5)
-                near_candidate_recall = round(model.metric_at_k[k][NearCandidateMetric.RECALL.value], 5)
-                recall_count = model.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
+                count = model.metric_at_k[k][Metric.COUNT.value]
                 prec_count = model.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value]
-                if k <= 20:
-                    logger.info(f"maP@{k}: {map} with {count} users out of all {model.num_users} users")
-                    logger.info(f"ndcg@{k}: {ndcg} with {count} users out of all {model.num_users} users")
-                    logger.info(f"recall@{k}: {recall} with {count} users out of all {model.num_users} users")
-                    logger.info(f"ranked_prec@{k}: {ranked_prec} out of all {prec_count} validation dataset")
-                else:
-                    logger.info(f"near_candidate_recall@{k}: {near_candidate_recall} with {recall_count} count out of all {prec_count} validation datasett")
+
+                logger.info(f"maP@{k}: {map} with {count} users out of all {model.num_users} users")
+                logger.info(f"ndcg@{k}: {ndcg} with {count} users out of all {model.num_users} users")
+                logger.info(f"recall@{k}: {recall} with {count} users out of all {model.num_users} users")
+                logger.info(f"ranked_prec@{k}: {ranked_prec} out of all {prec_count} validation dataset")
 
                 maps.append(str(map))
                 ndcgs.append(str(ndcg))
                 recalls.append(str(recall))
                 ranked_precs.append(str(ranked_prec))
-                candidate_recalls.append(str(near_candidate_recall))
 
-            torch.save(model.state_dict(), args.model_path)
-
+            logger.info(f"top k results for direct prediction @3, @7, @10, @20 in order")
             logger.info(f"map result: {'|'.join(maps)}")
             logger.info(f"ndcg result: {'|'.join(ndcgs)}")
             logger.info(f"recall: {'|'.join(recalls)}")
             logger.info(f"ranked_prec: {'|'.join(ranked_precs)}")
+
+            for k in top_k_values_for_candidate:
+                # near candidate metric
+                prec_count = model.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value]
+                near_candidate_recall = round(model.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value], 5)
+                recall_count = model.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
+                logger.info(f"near_candidate_recall@{k}: {near_candidate_recall} with {recall_count} count out of all {prec_count} validation dataset")
+                candidate_recalls.append(str(near_candidate_recall))
+
+            logger.info(f"top k results for candidate generation @100, @300, @500")
             logger.info(f"candidate_recall: {'|'.join(candidate_recalls)}")
 
+            torch.save(model.state_dict(), args.model_path)
             logger.info(f"successfully saved node2vec torch model: epoch {epoch}")
 
-            # # delete tensors to reserve storage in gpu
-            # del top_k_id, top_k_score, scores
     except:
         logger.error(traceback.format_exc())
         raise

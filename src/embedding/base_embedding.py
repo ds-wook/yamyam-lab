@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import List, Union, Tuple, Dict, Any
+from typing import List, Union, Tuple, Dict
 import torch
 import numpy as np
 from numpy.typing import NDArray
@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from constant.device.device import DEVICE
 from constant.metric.metric import Metric, NearCandidateMetric
+from constant.evaluation.recommend import RECOMMEND_BATCH_SIZE
 from tools.utils import convert_tensor, safe_divide
 from evaluation.metric import ranking_metrics_at_k, ranked_precision
 
@@ -75,8 +76,21 @@ class BaseEmbedding(nn.Module):
             top_k_score (number_of_users x max_k): associated score with top_k_id.
             scores (number_of_users x number_of_diners): calculated scores with all users and diners.
         """
+        # prepare for metric calculation
+        self.metric_at_k = {
+            k: {
+                Metric.MAP.value: 0,
+                Metric.NDCG.value: 0,
+                Metric.RECALL.value: 0,
+                Metric.COUNT.value: 0,
+                NearCandidateMetric.RANKED_PREC.value: 0,
+                NearCandidateMetric.RANKED_PREC_COUNT.value: 0,
+                NearCandidateMetric.NEAR_RECALL.value: 0,
+                NearCandidateMetric.RECALL_COUNT.value: 0,
+            }
+            for k in top_k_values
+        }
         max_k = max(top_k_values)
-        batch_size = 1000
         start = 0
         diner_embeds = self.embedding(self.diner_ids)
 
@@ -85,7 +99,7 @@ class BaseEmbedding(nn.Module):
         self.val_liked = convert_tensor(X_val, list)
 
         while start < self.num_users:
-            batch_users = self.user_ids[start:start+batch_size]
+            batch_users = self.user_ids[start : start+RECOMMEND_BATCH_SIZE]
             user_embeds = self.embedding(batch_users)
             scores = torch.mm(user_embeds, diner_embeds.t())
 
@@ -113,7 +127,7 @@ class BaseEmbedding(nn.Module):
                 top_k_values=top_k_values,
             )
 
-            start += batch_size
+            start += RECOMMEND_BATCH_SIZE
 
         for k in top_k_values:
             self.metric_at_k[k][Metric.MAP.value] = safe_divide(
@@ -124,12 +138,16 @@ class BaseEmbedding(nn.Module):
                 numerator=self.metric_at_k[k][Metric.NDCG.value],
                 denominator=self.metric_at_k[k][Metric.COUNT.value],
             )
+            self.metric_at_k[k][Metric.RECALL.value] = safe_divide(
+                numerator=self.metric_at_k[k][Metric.RECALL.value],
+                denominator=self.metric_at_k[k][Metric.COUNT.value],
+            )
             self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] = safe_divide(
                 numerator=self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value],
                 denominator=self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value],
             )
-            self.metric_at_k[k][NearCandidateMetric.RECALL.value] = safe_divide(
-                numerator=self.metric_at_k[k][NearCandidateMetric.RECALL.value],
+            self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value] = safe_divide(
+                numerator=self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value],
                 denominator=self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
             )
 
@@ -149,25 +167,11 @@ class BaseEmbedding(nn.Module):
              top_k_id (Tensor): diner_id whose score is under max_k ranked score.
              top_k_values (List[int]): a list of k values.
         """
-        # prepare for metric calculation
-        self.metric_at_k = {
-            k: {
-                Metric.MAP.value: 0,
-                Metric.NDCG.value: 0,
-                Metric.RECALL.value: 0,
-                Metric.COUNT.value: 0,
-                NearCandidateMetric.RANKED_PREC.value: 0,
-                NearCandidateMetric.RANKED_PREC_COUNT.value: 0,
-                NearCandidateMetric.RECALL.value: 0,
-                NearCandidateMetric.RECALL_COUNT.value: 0,
-            }
-            for k in top_k_values
-        }
 
         # TODO: change for loop to more efficient program
         # calculate metric
         for i, user_id in enumerate(user_ids):
-            user_id = user_id.item() - self.num_diners
+            user_id = user_id.item()
             val_liked_item_id = np.array(self.val_liked[user_id])
 
             for k in top_k_values:
@@ -202,7 +206,7 @@ class BaseEmbedding(nn.Module):
         # TODO: change for loop to more efficient program
         # calculate metric
         for i, user_id in enumerate(user_ids):
-            user_id = user_id.item() - self.num_diners
+            user_id = user_id.item()
             for k in top_k_values:
                 # diner_ids visited by user in validation dataset
                 locations = self.val_liked[user_id]
@@ -226,8 +230,8 @@ class BaseEmbedding(nn.Module):
                     self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value] += 1
 
                     if near_diner_ids.shape[0] > k:
-                        # ranked_prec value higher than 0 indicates hitting of true y
-                        self.metric_at_k[k][NearCandidateMetric.RECALL.value] += (self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] > 0.)
+                        recall = 1 if location in near_diner_ids_sorted else 0
+                        self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value] += recall
                         self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value] += 1
 
     def _recommend(
