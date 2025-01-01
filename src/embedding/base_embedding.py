@@ -19,7 +19,8 @@ class BaseEmbedding(nn.Module):
     def __init__(
             self,
             user_ids: Tensor,
-            diner_ids: Tensor
+            diner_ids: Tensor,
+            top_k_values: List[int],
         ):
         super().__init__()
         self.user_ids = user_ids
@@ -27,6 +28,20 @@ class BaseEmbedding(nn.Module):
         self.num_users = len(self.user_ids)
         self.num_diners = len(self.diner_ids)
         self.tr_loss = []
+        # store metric value at each epoch
+        self.metric_at_k_total_epochs = {
+            k: {
+                Metric.MAP.value: [],
+                Metric.NDCG.value: [],
+                Metric.RECALL.value: [],
+                Metric.COUNT.value: 0,
+                NearCandidateMetric.RANKED_PREC.value: [],
+                NearCandidateMetric.RANKED_PREC_COUNT.value: 0,
+                NearCandidateMetric.NEAR_RECALL.value: [],
+                NearCandidateMetric.RECALL_COUNT.value: 0,
+            }
+            for k in top_k_values
+        }
 
     @abstractmethod
     def forward(self, batch: Tensor) -> Tensor:
@@ -78,9 +93,11 @@ class BaseEmbedding(nn.Module):
              X_val (Tensor): number of reviews x (diner_id, reviewer_id) in val dataset.
              top_k_values (List[int]): a list of k values.
              nearby_candidates (Dict[int, List[int]]): near diners around ref diners with 1km.
+             epoch (int): current epoch.
              filter_already_liked (bool): whether filtering pre-liked diner in train dataset or not.
         """
         # prepare for metric calculation
+        # refresh at every epoch
         self.metric_at_k = {
             k: {
                 Metric.MAP.value: 0,
@@ -134,26 +151,53 @@ class BaseEmbedding(nn.Module):
             start += RECOMMEND_BATCH_SIZE
 
         for k in top_k_values:
+            # save map
             self.metric_at_k[k][Metric.MAP.value] = safe_divide(
                 numerator=self.metric_at_k[k][Metric.MAP.value],
                 denominator=self.metric_at_k[k][Metric.COUNT.value],
             )
+            self.metric_at_k_total_epochs[k][Metric.MAP.value].append(self.metric_at_k[k][Metric.MAP.value])
+
+            # save ndcg
             self.metric_at_k[k][Metric.NDCG.value] = safe_divide(
                 numerator=self.metric_at_k[k][Metric.NDCG.value],
                 denominator=self.metric_at_k[k][Metric.COUNT.value],
             )
+            self.metric_at_k_total_epochs[k][Metric.NDCG.value].append(self.metric_at_k[k][Metric.NDCG.value])
+
+            # save recall
             self.metric_at_k[k][Metric.RECALL.value] = safe_divide(
                 numerator=self.metric_at_k[k][Metric.RECALL.value],
                 denominator=self.metric_at_k[k][Metric.COUNT.value],
             )
+            self.metric_at_k_total_epochs[k][Metric.RECALL.value].append(self.metric_at_k[k][Metric.RECALL.value])
+
+            # save ranked_prec
             self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] = safe_divide(
                 numerator=self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value],
                 denominator=self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value],
             )
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.RANKED_PREC.value].append(
+                self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value]
+            )
+
+            # save near recall
             self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value] = safe_divide(
                 numerator=self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value],
                 denominator=self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
             )
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.NEAR_RECALL.value].append(
+                self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value]
+            )
+
+            # save count
+            self.metric_at_k_total_epochs[k][Metric.COUNT.value] = self.metric_at_k[k][Metric.COUNT.value]
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.RANKED_PREC_COUNT.value] = self.metric_at_k[k][
+                NearCandidateMetric.RANKED_PREC_COUNT.value
+            ]
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.RECALL_COUNT.value] = self.metric_at_k[k][
+                NearCandidateMetric.RECALL_COUNT.value
+            ]
 
     def calculate_no_candidate_metric(
             self,

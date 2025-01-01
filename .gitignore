@@ -10,3 +10,4 @@ __pycache__/
 
 res/models/*
 data/*
+src/result/*

@@ -12,6 +12,7 @@ from candidate.near import NearCandidateGenerator
 from embedding.base_embedding import BaseEmbedding
 from tools.generate_walks import generate_walks, precompute_probabilities
 from tools.utils import get_num_workers
+from tools.plot import plot_metric_at_k
 from constant.preprocess.preprocess import MIN_REVIEWS
 from constant.candidate.near import MAX_DISTANCE_KM
 from constant.device.device import DEVICE
@@ -67,6 +68,7 @@ class Node2Vec(BaseEmbedding):
         walk_length: int,
         context_size: int,
         num_nodes: int,
+        top_k_values: List[int],
         walks_per_node: int = 1,
         p: float = 1.0,
         q: float = 1.0,
@@ -76,6 +78,7 @@ class Node2Vec(BaseEmbedding):
         super().__init__(
             user_ids=user_ids,
             diner_ids=diner_ids,
+            top_k_values=top_k_values,
         )
         self.graph = graph
         self.embedding_dim = embedding_dim
@@ -261,6 +264,7 @@ if __name__ == "__main__":
         pickle.dump(data, open(os.path.join(args.result_path, FileName.DATA_OBJECT.value), "wb"))
 
         num_nodes = data["num_users"] + data["num_diners"]
+        top_k_values = TOP_K_VALUES_FOR_PRED + TOP_K_VALUES_FOR_CANDIDATE
         model = Node2Vec(
             user_ids=torch.tensor(list(data["user_mapping"].values())).to(DEVICE),
             diner_ids=torch.tensor(list(data["diner_mapping"].values())).to(DEVICE),
@@ -273,6 +277,8 @@ if __name__ == "__main__":
             num_negative_samples=args.num_negative_samples,
             q=args.q,
             p=args.p,
+            top_k_values=top_k_values,
+            inference=True,
         ).to(DEVICE)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr)
 
@@ -297,19 +303,17 @@ if __name__ == "__main__":
         )
         for epoch in range(args.epochs):
             logger.info(f"################## epoch {epoch} ##################")
-            total_loss = 0
-            for pos_rw, neg_rw in loader:
-                optimizer.zero_grad()
-                loss = model.loss(pos_rw.to(DEVICE), neg_rw.to(DEVICE))
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-            total_loss /= len(loader)
-            model.tr_loss.append(total_loss)
-
-            logger.info(f"epoch {epoch}: train loss {total_loss:.4f}")
-
-            top_k_values = TOP_K_VALUES_FOR_PRED + TOP_K_VALUES_FOR_CANDIDATE
+            # total_loss = 0
+            # for pos_rw, neg_rw in loader:
+            #     optimizer.zero_grad()
+            #     loss = model.loss(pos_rw.to(DEVICE), neg_rw.to(DEVICE))
+            #     loss.backward()
+            #     optimizer.step()
+            #     total_loss += loss.item()
+            # total_loss /= len(loader)
+            # model.tr_loss.append(total_loss)
+            #
+            # logger.info(f"epoch {epoch}: train loss {total_loss:.4f}")
 
             model.recommend_all(
                 X_train=data["X_train"],
@@ -369,12 +373,18 @@ if __name__ == "__main__":
                 )
             )
             pickle.dump(
-                model.metric_at_k,
+                model.metric_at_k_total_epochs,
                 open(
                     os.path.join(args.result_path, FileName.METRIC.value), "wb"
                 )
             )
             logger.info(f"successfully saved node2vec torch model: epoch {epoch}")
+
+        # plot metrics
+        plot_metric_at_k(
+            metric=model.metric_at_k_total_epochs,
+            parent_save_path=args.result_path,
+        )
 
     except:
         logger.error(traceback.format_exc())
