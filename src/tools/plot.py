@@ -15,6 +15,17 @@ def plot_metric_at_k(
         tr_loss: List[float],
         parent_save_path: str,
 ) -> None:
+    """
+    Draw metrics line plot @k at each epoch after training.
+    For direct recommendation, @3,7,10,20 diners will be used.
+    For candidate generation, @100,300,500 diners will be used.
+    Number of items to used in metrics are different depending on the purpose.
+
+    Args:
+        metric (Dict[int, Dict[str, Any]]): metric object after training.
+        tr_loss (List[float]): train loss value in each epoch.
+        parent_save_path (str): parent save path which will be joined with metric name.
+    """
     pred_metrics = [
         Metric.MAP.value,
         Metric.NDCG.value,
@@ -82,6 +93,15 @@ def plot_metric(
         save_path: str,
         hue=True,
 ) -> None:
+    """
+    Draw line plot given dataframe.
+
+    Args:
+        df (pd.DataFrame): dataframe which contains information about metric.
+        metric_name (str): metric name to be plotted.
+        save_path (str): path to save line plot.
+        hue (bool, optional): whether to hue the line plot. Defaults to True.
+    """
     if hue is True:
         sns.lineplot(x="epochs", y="value", data=df, hue="@k", marker="o")
         title = f"{metric_name} at @k with every epoch"
