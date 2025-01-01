@@ -50,10 +50,43 @@ $ poetry lock
 
 ## Experiment results
 
-|Algorithm|Task|mAP@3|mAP@7|mAP@10|NDCG@3|NDCG@7|NDCG@10|
-|----------------|---------|------|------|------|-------|-------|-------|
-|SVD|Regression|0.00087|0.00066|0.00065|0.00127|0.00148|0.00183|
-|node2vec|Embedding|0.0058|0.00384|0.00355|0.00876|0.00918|0.01006|
+### CASE 1) Without candidates
+
+Below are metric results without any candidate filtering.
+
+* Recommendations are generated at user's level.
+* This inference does not consider user's current location.
+
+|Algorithm|Task|mAP@3|mAP@7|mAP@10|mAP@20|NDCG@3|NDCG@7|NDCG@10|NDCG@20|
+|----------------|---------|------|------|------|-------|-------|-------|-------|-------|
+|SVD|Regression|TBD|TBD|TBD|TBD|TBD|TBD|TBD|TBD|
+|node2vec|Unsupervised|0.00803|0.00736|0.00743|0.00761|0.01253|0.01709|0.02082|0.02972
+
+### CASE 2) With candidates filtering with near 1km diners.
+
+Below are metric results with candidate filtering.
+
+* Recommendations are generated at each data level in validation dataset.
+* This inference regards diner's location as user's current location which actually cannot be obtained.
+
+|Algorithm|Task|ranked_prec@3|ranked_prec@7|ranked_prec@10|ranked_prec@20|
+|----------------|---------|------|------|------|-------|
+|SVD|Regression|TBD|TBD|TBD|TBD|
+|node2vec|Unsupervised|0.10109|0.14015|0.16174|0.21334|
+
+
+### CASE 3) Candidates generation models
+
+|Algorithm|Task|recall@100|recall@300|recall@500|
+|----------------|---------|------|------|------|
+|node2vec|Unsupervised|0.50612|0.74211|0.8439|
+
+
+### CASE 4) With two-step recommendations
+
+|Candidate model|number of candidates|Reranking model|Task|ranked_prec@3|ranked_prec@7|ranked_prec@10|ranked_prec@20|
+|---------------|--------------------|---------------|----|-------------|-------------|--------------|--------------|
+|node2vec|TBD|lightgbm ranker|TBD|TBD|TBD|TBD|TBD|
 
 ## Commit 가이드
 - feat: 새로운 기능 추가

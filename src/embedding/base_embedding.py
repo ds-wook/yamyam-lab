@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import List, Union, Tuple, Dict, Any
+from typing import List, Union, Tuple, Dict
 import torch
 import numpy as np
 from numpy.typing import NDArray
@@ -10,7 +10,8 @@ from torch.utils.data import DataLoader
 
 from constant.device.device import DEVICE
 from constant.metric.metric import Metric, NearCandidateMetric
-from tools.utils import convert_tensor
+from constant.evaluation.recommend import RECOMMEND_BATCH_SIZE
+from tools.utils import convert_tensor, safe_divide
 from evaluation.metric import ranking_metrics_at_k, ranked_precision
 
 
@@ -18,13 +19,29 @@ class BaseEmbedding(nn.Module):
     def __init__(
             self,
             user_ids: Tensor,
-            diner_ids: Tensor
+            diner_ids: Tensor,
+            top_k_values: List[int],
         ):
         super().__init__()
         self.user_ids = user_ids
         self.diner_ids = diner_ids
         self.num_users = len(self.user_ids)
         self.num_diners = len(self.diner_ids)
+        self.tr_loss = []
+        # store metric value at each epoch
+        self.metric_at_k_total_epochs = {
+            k: {
+                Metric.MAP.value: [],
+                Metric.NDCG.value: [],
+                Metric.RECALL.value: [],
+                Metric.COUNT.value: 0,
+                NearCandidateMetric.RANKED_PREC.value: [],
+                NearCandidateMetric.RANKED_PREC_COUNT.value: 0,
+                NearCandidateMetric.NEAR_RECALL.value: [],
+                NearCandidateMetric.RECALL_COUNT.value: 0,
+            }
+            for k in top_k_values
+        }
 
     @abstractmethod
     def forward(self, batch: Tensor) -> Tensor:
@@ -54,63 +71,33 @@ class BaseEmbedding(nn.Module):
             self,
             X_train: Tensor,
             X_val: Tensor,
-            max_k: int,
+            top_k_values: List[int],
+            nearby_candidates: Dict[int, list],
             filter_already_liked: bool = True,
-        ) -> Tuple[Tensor, Tensor, Tensor]:
+        ) -> None:
         """
-        Computes score between all users and all diners.
+        Generate diner recommendations for all users.
         Suppose number of users is U and number of diners is D.
         The dimension of associated matrix between users and diners is U x D.
-        This function also precalculates top-k indices and their scores.
+        However, to avoid out of memory error, batch recommendation is run.
+        For every batch users, we calculate metric when there are no candidates,
+        and there are near diner candidates.
+
+            - when there are no candidates:
+                map, ndcg, recall, ranked_prec are calculated at @3, @7, @10, @20
+            - when there are near diner candidates:
+                recall is calculated at @100, @300, @500
 
         Args:
              X_train (Tensor): number of reviews x (diner_id, reviewer_id) in train dataset.
              X_val (Tensor): number of reviews x (diner_id, reviewer_id) in val dataset.
-             max_k (int): maximum k among top_ks [3, 7, 10, 20, etc].
-             filter_already_liked (bool): whether filtering pre-liked diner in train dataset or not.
-
-        Returns (Tuple[Tensor, Tensor, Tensor]):
-            top_k_id (number_of_users x max_k): diner_id whose score is under max_k ranked score.
-            top_k_score (number_of_users x max_k): associated score with top_k_id.
-            scores (number_of_users x number_of_diners): calculated scores with all users and diners.
-        """
-        user_embeds = self.embedding(self.user_ids)
-        diner_embeds = self.embedding(self.diner_ids)
-        scores = torch.mm(user_embeds, diner_embeds.t())
-
-        # TODO: change for loop to more efficient program
-        # filter diner id already liked by user in train dataset
-        if filter_already_liked:
-            for diner_id, user_id in X_train:
-                diner_id = diner_id.item()
-                user_id = user_id.item()
-                # not recommend already chosen item_id by setting prediction value as -inf
-                scores[user_id - self.num_diners][diner_id] = -float("inf")
-        # store true diner id visited by user in validation dataset
-        self.val_liked = convert_tensor(X_val, list)
-
-        top_k = torch.topk(scores, k=max_k)
-        top_k_id = top_k.indices
-        top_k_score = top_k.values
-
-        return top_k_id, top_k_score, scores
-
-    def calculate_no_candidate_metric(
-            self,
-            top_k_id: Tensor,
-            top_k_values: List[int],
-        ) -> None:
-        """
-        After calculating scores in `recommend_all` function, calculate metric without any candidates.
-        Metrics calculated in this function are NDCG, mAP.
-        Note that this function does not consider locality, which means recommendations
-        could be given regardless of user's location and diner's location
-
-        Args:
-             top_k_id (Tensor): diner_id whose score is under max_k ranked score.
              top_k_values (List[int]): a list of k values.
+             nearby_candidates (Dict[int, List[int]]): near diners around ref diners with 1km.
+             epoch (int): current epoch.
+             filter_already_liked (bool): whether filtering pre-liked diner in train dataset or not.
         """
         # prepare for metric calculation
+        # refresh at every epoch
         self.metric_at_k = {
             k: {
                 Metric.MAP.value: 0,
@@ -119,20 +106,125 @@ class BaseEmbedding(nn.Module):
                 Metric.COUNT.value: 0,
                 NearCandidateMetric.RANKED_PREC.value: 0,
                 NearCandidateMetric.RANKED_PREC_COUNT.value: 0,
-                NearCandidateMetric.RECALL.value: 0,
+                NearCandidateMetric.NEAR_RECALL.value: 0,
                 NearCandidateMetric.RECALL_COUNT.value: 0,
             }
             for k in top_k_values
         }
+        max_k = max(top_k_values)
+        start = 0
+        diner_embeds = self.embedding(self.diner_ids)
+
+        # store true diner id visited by user in validation dataset
+        self.train_liked = convert_tensor(X_train, list)
+        self.val_liked = convert_tensor(X_val, list)
+
+        while start < self.num_users:
+            batch_users = self.user_ids[start : start+RECOMMEND_BATCH_SIZE]
+            user_embeds = self.embedding(batch_users)
+            scores = torch.mm(user_embeds, diner_embeds.t())
+
+            # TODO: change for loop to more efficient program
+            # filter diner id already liked by user in train dataset
+            if filter_already_liked:
+                for i, user_id in enumerate(batch_users):
+                    already_liked_ids = self.train_liked[user_id.item()]
+                    for diner_id in already_liked_ids:
+                        scores[i][diner_id] = -float("inf")
+
+            top_k = torch.topk(scores, k=max_k)
+            top_k_id = top_k.indices
+
+            self.calculate_no_candidate_metric(
+                user_ids=batch_users,
+                top_k_id=top_k_id,
+                top_k_values=top_k_values
+            )
+
+            self.calculate_near_candidate_metric(
+                user_ids=batch_users,
+                scores=scores,
+                nearby_candidates=nearby_candidates,
+                top_k_values=top_k_values,
+            )
+
+            start += RECOMMEND_BATCH_SIZE
+
+        for k in top_k_values:
+            # save map
+            self.metric_at_k[k][Metric.MAP.value] = safe_divide(
+                numerator=self.metric_at_k[k][Metric.MAP.value],
+                denominator=self.metric_at_k[k][Metric.COUNT.value],
+            )
+            self.metric_at_k_total_epochs[k][Metric.MAP.value].append(self.metric_at_k[k][Metric.MAP.value])
+
+            # save ndcg
+            self.metric_at_k[k][Metric.NDCG.value] = safe_divide(
+                numerator=self.metric_at_k[k][Metric.NDCG.value],
+                denominator=self.metric_at_k[k][Metric.COUNT.value],
+            )
+            self.metric_at_k_total_epochs[k][Metric.NDCG.value].append(self.metric_at_k[k][Metric.NDCG.value])
+
+            # save recall
+            self.metric_at_k[k][Metric.RECALL.value] = safe_divide(
+                numerator=self.metric_at_k[k][Metric.RECALL.value],
+                denominator=self.metric_at_k[k][Metric.COUNT.value],
+            )
+            self.metric_at_k_total_epochs[k][Metric.RECALL.value].append(self.metric_at_k[k][Metric.RECALL.value])
+
+            # save ranked_prec
+            self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] = safe_divide(
+                numerator=self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value],
+                denominator=self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value],
+            )
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.RANKED_PREC.value].append(
+                self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value]
+            )
+
+            # save near recall
+            self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value] = safe_divide(
+                numerator=self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value],
+                denominator=self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
+            )
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.NEAR_RECALL.value].append(
+                self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value]
+            )
+
+            # save count
+            self.metric_at_k_total_epochs[k][Metric.COUNT.value] = self.metric_at_k[k][Metric.COUNT.value]
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.RANKED_PREC_COUNT.value] = self.metric_at_k[k][
+                NearCandidateMetric.RANKED_PREC_COUNT.value
+            ]
+            self.metric_at_k_total_epochs[k][NearCandidateMetric.RECALL_COUNT.value] = self.metric_at_k[k][
+                NearCandidateMetric.RECALL_COUNT.value
+            ]
+
+    def calculate_no_candidate_metric(
+            self,
+            user_ids: Tensor,
+            top_k_id: Tensor,
+            top_k_values: List[int],
+        ) -> None:
+        """
+        After calculating scores in `recommend_all` function, calculate metric without any candidates.
+        Metrics calculated in this function are NDCG, mAP and recall.
+        Note that this function does not consider locality, which means recommendations
+        could be given regardless of user's location and diner's location
+
+        Args:
+             user_ids (Tensor): batch of user ids.
+             top_k_id (Tensor): diner_id whose score is under max_k ranked score.
+             top_k_values (List[int]): a list of k values.
+        """
 
         # TODO: change for loop to more efficient program
         # calculate metric
-        for user_id in self.user_ids:
+        for i, user_id in enumerate(user_ids):
             user_id = user_id.item()
             val_liked_item_id = np.array(self.val_liked[user_id])
 
             for k in top_k_values:
-                pred_liked_item_id = top_k_id[user_id - self.num_diners][:k].detach().cpu().numpy()
+                pred_liked_item_id = top_k_id[i][:k].detach().cpu().numpy()
                 if len(val_liked_item_id) >= k:
                     metric = ranking_metrics_at_k(val_liked_item_id, pred_liked_item_id)
                     self.metric_at_k[k][Metric.MAP.value] += metric[Metric.AP.value]
@@ -140,12 +232,9 @@ class BaseEmbedding(nn.Module):
                     self.metric_at_k[k][Metric.RECALL.value] += metric[Metric.RECALL.value]
                     self.metric_at_k[k][Metric.COUNT.value] += 1
 
-        for k in top_k_values:
-            self.metric_at_k[k][Metric.MAP.value] /= self.metric_at_k[k][Metric.COUNT.value]
-            self.metric_at_k[k][Metric.NDCG.value] /= self.metric_at_k[k][Metric.COUNT.value]
-
     def calculate_near_candidate_metric(
             self,
+            user_ids: Tensor,
             scores: Tensor,
             nearby_candidates: Dict[int, list],
             top_k_values: List[int],
@@ -159,13 +248,14 @@ class BaseEmbedding(nn.Module):
         We suppose that location of each user in each row in val dataset is location of each diner.
 
         Args:
+             user_ids (Tensor): batch of user ids.
              scores (Tensor): calculated scores with all users and diners.
              nearby_candidates (Dict[int, List[int]]): near diners around ref diners with 1km
              top_k_values (List[int]): a list of k values.
         """
         # TODO: change for loop to more efficient program
         # calculate metric
-        for user_id in self.user_ids:
+        for i, user_id in enumerate(user_ids):
             user_id = user_id.item()
             for k in top_k_values:
                 # diner_ids visited by user in validation dataset
@@ -173,7 +263,7 @@ class BaseEmbedding(nn.Module):
                 for location in locations:
                     # filter only near diner
                     near_diner_ids = torch.tensor(nearby_candidates[location]).to(DEVICE)
-                    near_diner_scores = scores[user_id - self.num_diners][near_diner_ids]
+                    near_diner_scores = scores[i][near_diner_ids]
 
                     # sort indices using predicted score
                     sorted_indices = torch.argsort(near_diner_scores, descending=True)
@@ -190,13 +280,9 @@ class BaseEmbedding(nn.Module):
                     self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value] += 1
 
                     if near_diner_ids.shape[0] > k:
-                        # ranked_prec value higher than 0 indicates hitting of true y
-                        self.metric_at_k[k][NearCandidateMetric.RECALL.value] += (self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] > 0.)
+                        recall = 1 if location in near_diner_ids_sorted else 0
+                        self.metric_at_k[k][NearCandidateMetric.NEAR_RECALL.value] += recall
                         self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value] += 1
-
-        for k in top_k_values:
-            self.metric_at_k[k][NearCandidateMetric.RANKED_PREC.value] /= self.metric_at_k[k][NearCandidateMetric.RANKED_PREC_COUNT.value]
-            self.metric_at_k[k][NearCandidateMetric.RECALL.value] /= self.metric_at_k[k][NearCandidateMetric.RECALL_COUNT.value]
 
     def _recommend(
             self,
