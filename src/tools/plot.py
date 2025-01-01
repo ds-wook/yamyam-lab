@@ -87,7 +87,7 @@ def plot_metric(
         title = f"{metric_name} at @k with every epoch"
     else:
         sns.lineplot(x="epochs", y="value", data=df, marker="o")
-        title = f"{metric_name}with every epoch"
+        title = f"{metric_name} with every epoch"
     plt.ylabel(metric_name)
     plt.title(title)
     plt.savefig(save_path)
