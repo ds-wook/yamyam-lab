@@ -1,0 +1,4 @@
+local_paths:
+  diner: data/diner.csv
+  review: data/review.csv
+  reviewer: data/reviewer.csv
