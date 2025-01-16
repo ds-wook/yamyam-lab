@@ -33,6 +33,8 @@ numpy = ">=1.24.0"
 plotly = ">=5.18.0"
 pyyaml = ">=6.0.1"
 catboost = "^1.2.7"
+python-dotenv = "^1.0.1"
+pytest-dotenv = "^0.5.2"
 
 [build-system]
 requires = ["poetry-core"]
