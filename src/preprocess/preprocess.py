@@ -47,7 +47,7 @@ def load_dataset(test: bool = False) -> pd.DataFrame:
     review = pd.read_csv(data_paths["review"])
     reviewer = pd.read_csv(data_paths["reviewer"])
 
-    review = pd.merge(review, reviewer, on="reviewer_id", how="left")
+    # review = pd.merge(review, reviewer, on="reviewer_id", how="left")
 
     if test:
         review = review.iloc[:5000, :]
