@@ -42,7 +42,14 @@ class TorchData(Dataset):
 
 def load_dataset(test: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Load review and diner data, and optionally filter for pytest.
+    Load review, diner, and diner with raw category data, and optionally filter for pytest.
+    In this function, no other preprocessing logic is done but only loading data will be run.
+
+    Args:
+        test (bool): When set true, subset of review data will be used.
+
+    Returns (Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]):
+        review, diner, diner with raw category in order.
     """
     data_paths = ensure_data_files()
 
@@ -68,20 +75,29 @@ def preprocess_common(
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Common preprocessing identically applied to ranking and candidate generation.
+
+    Args:
+        review (pd.DataFrame): Review dataset.
+        diner (pd.DataFrame): Diner dataset.
+        diner_with_raw_category (pd.DataFrame): Diner dataset with raw category not preprocessed before.
+        min_reviews (int): Minimum number of reviews for each reviewers.
+
+    Returns (Tuple[pd.DataFrame, pd.DataFrame]):
+        Preprocessed review dataset and diner dataset.
     """
-    # filter reviewers writing reviews greater than or equal to `min_reviews`
+    # step 1: filter reviewers writing reviews greater than or equal to `min_reviews`
     reviewer_counts = review["reviewer_id"].value_counts()
     valid_reviewers = reviewer_counts[reviewer_counts >= min_reviews].index
     review = review[review["reviewer_id"].isin(valid_reviewers)]
 
-    # use diner which has at least one review
+    # step 2: use diner which has at least one review
     diner_idx_both_exist = set(review["diner_idx"].unique()) & set(
         diner["diner_idx"].unique()
     )
     review = review[review["diner_idx"].isin(diner_idx_both_exist)]
     diner = diner[diner["diner_idx"].isin(diner_idx_both_exist)]
 
-    # replace diner_category with raw, unpreprocessed diner_category
+    # step 3: replace diner_category with raw, unpreprocessed diner_category
     # this is temporary preprocessing because preprocessed categories will be given
     category_columns = [
         "diner_category_large",
@@ -97,7 +113,7 @@ def preprocess_common(
         on="diner_idx"
     )
 
-    # temporary na filling
+    # step 4: temporary na filling
     diner["diner_category_large"] = diner["diner_category_large"].fillna("NA")
 
     return review, diner
@@ -142,6 +158,20 @@ def map_id_to_ascending_integer(
         diner: pd.DataFrame,
         is_graph_model: bool = False,
     ) -> Dict[str, Any]:
+    """
+    Map reviewer_id, diner_idx to integer in ascending order.
+    In raw data, reviewer_id and diner_idx are integer but their digit lengths are too long.
+    When training model, integer in ascending order is easier to handler and more efficient than current id format.
+
+    Args:
+        review (pd.DataFrame): Review dataset.
+        diner (pd.DataFrame): Diner dataset.
+        is_graph_model (bool): Indicator whether target model is graph based model or not.
+            When set true, all the mapped id should be unique.
+
+    Returns (Dict[str, Any]):
+        Mapped result.
+    """
     # store unique number of diner and reviewer
     diner_idxs = sorted(list(review["diner_idx"].unique()))
     reviewer_ids = sorted(list(review["reviewer_id"].unique()))
@@ -188,6 +218,15 @@ def map_id_to_ascending_integer(
 
 
 def preprocess_diner_data_for_candidate_generation(diner: pd.DataFrame) -> pd.DataFrame:
+    """
+    Additional preprocessing when metadata is integrated to graph based model.
+
+    Args:
+        diner (pd.DataFrame): Diner dataset
+
+    Returns (pd.DataFrame):
+        Diner dataset with metadata added.
+    """
     diner["h3_index"] = diner.apply(lambda row: get_h3_index(row["diner_lat"], row["diner_lon"], RESOLUTION), axis=1)
     diner["diner_category_large_h3_index"] = diner.apply(lambda row: row["diner_category_large"] + "_" + row["h3_index"], axis=1)
     return diner
