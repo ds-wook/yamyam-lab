@@ -56,8 +56,7 @@ def load_dataset(test: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Dat
     review = pd.read_csv(data_paths["review"])
     reviewer = pd.read_csv(data_paths["reviewer"])
 
-    # comment this line before fixing data issue
-    # review = pd.merge(review, reviewer, on="reviewer_id", how="left")
+    review = pd.merge(review, reviewer, on="reviewer_id", how="left")
 
     if test:
         review = review.iloc[:5000, :]
