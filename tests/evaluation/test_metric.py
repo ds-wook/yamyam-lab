@@ -8,8 +8,32 @@ except ModuleNotFoundError:
     raise Exception("No module found")
 
 import numpy as np
+from sklearn.metrics import ndcg_score
 
 from evaluation.metric import ranked_precision, ranking_metrics_at_k
+
+
+def test_ndcg_same_as_sklearn():
+    """
+    total number of items: 5
+    item_ids that user liked: [0, 3, 4]
+    numer of recommended items (top k value): starting from 1 to 5
+    definition of relevance: 1 if user liked else 0
+    scores of each item: [10, 4, 8, 1, 3]
+    recommended item_ids in descending score order: [0, 2, 1, 4, 3]
+    """
+    true_relevance = np.array([[1, 0, 0, 1, 1]]) # user liked 0,3,4 index item in liked_items
+    num_items = true_relevance.shape[1]
+    # dummy values which will be prediction scores from recommender system
+    # items will be recommended with prediction scores descending order
+    scores = np.array([[10, 4, 8, 1, 3]])
+    liked_items = np.array([0, 100, 50])
+    reco_items = np.array([0, 15, 37, 100, 50])
+
+    for k in range(1, num_items+1):
+        ndcg_sklearn = ndcg_score(true_relevance, scores, ignore_ties=True, k=k)
+        ndcg_implemented = ranking_metrics_at_k(liked_items, reco_items[:k])["ndcg"]
+        np.testing.assert_almost_equal(ndcg_sklearn, ndcg_implemented)
 
 
 def test_map_ndcg_y_binary():
