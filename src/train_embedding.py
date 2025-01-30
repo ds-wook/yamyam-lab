@@ -173,9 +173,7 @@ def main(args: ArgumentParser.parse_args) -> None:
                 recalls.append(str(recall))
                 ranked_precs.append(str(ranked_prec))
 
-            logger.info(
-                "top k results for direct prediction @3, @7, @10, @20 in order"
-            )
+            logger.info("top k results for direct prediction @3, @7, @10, @20 in order")
             logger.info(f"map result: {'|'.join(maps)}")
             logger.info(f"ndcg result: {'|'.join(ndcgs)}")
             logger.info(f"recall: {'|'.join(recalls)}")
