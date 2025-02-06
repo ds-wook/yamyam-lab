@@ -1,7 +1,9 @@
 from abc import abstractmethod
-from typing import List, Union, Tuple, Dict
-import torch
+from typing import Dict, List, Tuple, Union
+
 import numpy as np
+import torch
+import torch.nn as nn
 from numpy.typing import NDArray
 import networkx as nx
 
@@ -11,10 +13,10 @@ from torch.nn import Embedding
 from torch.utils.data import DataLoader
 
 from constant.device.device import DEVICE
-from constant.metric.metric import Metric, NearCandidateMetric
 from constant.evaluation.recommend import RECOMMEND_BATCH_SIZE
+from constant.metric.metric import Metric, NearCandidateMetric
+from evaluation.metric import ranked_precision, ranking_metrics_at_k
 from tools.utils import convert_tensor, safe_divide
-from evaluation.metric import ranking_metrics_at_k, ranked_precision
 
 
 class BaseEmbedding(nn.Module):
@@ -269,14 +271,11 @@ class BaseEmbedding(nn.Module):
 
             for k in top_k_values:
                 pred_liked_item_id = top_k_id[i][:k].detach().cpu().numpy()
-                if len(val_liked_item_id) >= k:
-                    metric = ranking_metrics_at_k(val_liked_item_id, pred_liked_item_id)
-                    self.metric_at_k[k][Metric.MAP.value] += metric[Metric.AP.value]
-                    self.metric_at_k[k][Metric.NDCG.value] += metric[Metric.NDCG.value]
-                    self.metric_at_k[k][Metric.RECALL.value] += metric[
-                        Metric.RECALL.value
-                    ]
-                    self.metric_at_k[k][Metric.COUNT.value] += 1
+                metric = ranking_metrics_at_k(val_liked_item_id, pred_liked_item_id)
+                self.metric_at_k[k][Metric.MAP.value] += metric[Metric.AP.value]
+                self.metric_at_k[k][Metric.NDCG.value] += metric[Metric.NDCG.value]
+                self.metric_at_k[k][Metric.RECALL.value] += metric[Metric.RECALL.value]
+                self.metric_at_k[k][Metric.COUNT.value] += 1
 
     def calculate_near_candidate_metric(
         self,

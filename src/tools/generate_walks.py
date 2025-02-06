@@ -1,14 +1,14 @@
-from typing import Dict, Any, List, Union, Tuple
 import random
-from tqdm import tqdm
+from collections import defaultdict
+from typing import Dict, Any, List, Union, Tuple
+
+import networkx as nx
 import numpy as np
 from numpy.typing import NDArray
-import networkx as nx
-from collections import defaultdict
-
 import torch
 from torch import Tensor
 from torch.nn.utils.rnn import pad_sequence
+from tqdm import tqdm
 
 from constant.embedding.node2vec import TransitionKey
 
