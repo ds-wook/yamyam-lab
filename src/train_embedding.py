@@ -59,6 +59,9 @@ def main(args: ArgumentParser.parse_args) -> None:
             X_val=data["X_val"],
             y_val=data["y_val"],
             diner=data["diner"],
+            user_mapping=data["user_mapping"],
+            diner_mapping=data["diner_mapping"],
+            meta_mapping=data["meta_mapping"],
             weighted=args.weighted_edge,
             use_metadata=args.use_metadata,
         )
@@ -68,7 +71,7 @@ def main(args: ArgumentParser.parse_args) -> None:
             data, open(os.path.join(args.result_path, FileName.DATA_OBJECT.value), "wb")
         )
 
-        num_nodes = data["num_users"] + data["num_diners"]
+        num_nodes = data["num_users"] + data["num_diners"] + data["num_metas"]
         top_k_values = TOP_K_VALUES_FOR_PRED + TOP_K_VALUES_FOR_CANDIDATE
 
         # import embedding module
@@ -86,6 +89,8 @@ def main(args: ArgumentParser.parse_args) -> None:
             q=args.q,
             p=args.p,
             top_k_values=top_k_values,
+            meta_path=args.meta_path,
+            meta_field=args.meta_field,
         ).to(DEVICE)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr)
 

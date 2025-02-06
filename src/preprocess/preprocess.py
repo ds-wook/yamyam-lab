@@ -214,6 +214,7 @@ def map_id_to_ascending_integer(
         "diner": diner,
         "num_diners": num_diners,
         "num_users": num_users,
+        "num_metas": len(meta_mapping) if meta_mapping else 0,
         "diner_mapping": diner_mapping,
         "user_mapping": reviewer_mapping,
         "meta_mapping": meta_mapping,
@@ -423,6 +424,9 @@ def prepare_networkx_undirected_graph(
     X_val: Tensor,
     y_val: Tensor,
     diner: pd.DataFrame,
+    user_mapping: Dict[int, int],
+    diner_mapping: Dict[int, int],
+    meta_mapping: Dict[int, int],
     weighted: bool = False,
     use_metadata: bool = False,
 ) -> Tuple[nx.Graph, nx.Graph]:
@@ -479,5 +483,14 @@ def prepare_networkx_undirected_graph(
             metadata_id = row["metadata_id"]
             train_graph.add_edge(diner_idx, metadata_id)
             val_graph.add_edge(diner_idx, metadata_id)
+
+    # add node and node attribute (user / diner / meta) to networkx graph
+    nodes_metadata = {
+        **{user_id: {"meta": "user"} for _, user_id in user_mapping.items()},
+        **{diner_id: {"meta": "diner"} for _, diner_id in diner_mapping.items()},
+        **{meta_id: {"meta": "category"} for _, meta_id in meta_mapping.items()},
+    }
+    nx.set_node_attributes(train_graph, nodes_metadata)
+    nx.set_node_attributes(val_graph, nodes_metadata)
 
     return train_graph, val_graph

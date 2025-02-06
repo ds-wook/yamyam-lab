@@ -8,6 +8,7 @@ from collections import defaultdict
 
 import torch
 from torch import Tensor
+from torch.nn.utils.rnn import pad_sequence
 
 from constant.embedding.node2vec import TransitionKey
 
@@ -141,3 +142,70 @@ def precompute_probabilities(
         # Save neighbors preserving order
         d_graph[source][TransitionKey.NEIGHBORS.value] = list(graph.neighbors(source))
     return d_graph
+
+
+def precompute_probabilities_metapath(
+        graph: nx.Graph,
+        meta_field: str,
+):
+    nodes_without_meta = [
+        node for node in graph.nodes()
+        if meta_field not in graph.nodes[node]
+    ]
+    assert len(nodes_without_meta) == 0
+
+    node_meta = set(
+        [graph.nodes[node][meta_field] for node in graph.nodes()]
+    )
+
+    d_graph = defaultdict(dict)
+    for node in graph.nodes():
+        for meta in node_meta:
+            d_graph[node][meta] = {"neighbors":[], "prob":[]}
+
+    for node in tqdm(graph.nodes(), desc="Computing transition probabilities"):
+        for neighbor in graph.neighbors(node):
+            neighbor_meta = graph.nodes[neighbor].get(meta_field)
+            d_graph[node][neighbor_meta]["neighbors"].append(neighbor)
+        for meta in node_meta:
+            if len(d_graph[node][meta]["neighbors"]) != 0:
+                neighbors_meta = d_graph[node][meta]["neighbors"]
+                # uniform distribution
+                d_graph[node][meta]["prob"] = [1/len(neighbors_meta) for _ in range(len(neighbors_meta))]
+    return d_graph
+
+
+def generate_walks_metapath(
+        node_ids: Union[List[int], NDArray],
+        graph: nx.Graph,
+        d_graph: Dict[int, Dict[str, Dict[str, List[int]]]],
+        meta_path: List[List[str]],
+        meta_field: str,
+        walks_per_node: int,
+):
+    walks = []
+    meta_path_count = []
+    cnt = 0
+    for path in meta_path:
+        for node in node_ids:
+            start_node_meta = graph.nodes[node][meta_field]
+            if path[0] != start_node_meta:
+                continue
+            for _ in range(walks_per_node):
+                walk = [node]
+                current_node = node
+                for meta in path[1:]:
+                    neighbors = d_graph[current_node][meta]["neighbors"]
+                    prob = d_graph[current_node][meta]["prob"]
+                    if len(neighbors) == 0:
+                        break
+                    next_node = random.choices(neighbors, weights=prob)[0]
+                    walk.append(next_node)
+
+                    current_node = next_node
+                if len(walk) == len(path):
+                    walks.append(torch.tensor(walk))
+                    cnt += 1
+        meta_path_count.append( (tuple(path), cnt) )
+    walks_padded = pad_sequence(walks, batch_first=True, padding_value=-1)
+    return walks_padded, meta_path_count

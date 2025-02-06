@@ -32,6 +32,8 @@ def run_model(model):
     )
     args.weighted_edge = True
     args.use_metadata = False
+    args.meta_path = []
+    args.meta_field = ""
     args.test = True
 
     main(args)

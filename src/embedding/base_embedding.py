@@ -3,9 +3,11 @@ from typing import List, Union, Tuple, Dict
 import torch
 import numpy as np
 from numpy.typing import NDArray
+import networkx as nx
 
 from torch import Tensor
 import torch.nn as nn
+from torch.nn import Embedding
 from torch.utils.data import DataLoader
 
 from constant.device.device import DEVICE
@@ -21,13 +23,28 @@ class BaseEmbedding(nn.Module):
         user_ids: Tensor,
         diner_ids: Tensor,
         top_k_values: List[int],
+        graph: nx.Graph,
+        embedding_dim: int,
+        walks_per_node: int,
+        num_negative_samples: int,
+        num_nodes: int,
     ):
         super().__init__()
         self.user_ids = user_ids
         self.diner_ids = diner_ids
+        self.graph = graph
+        self.embedding_dim = embedding_dim
+        self.walks_per_node = walks_per_node
+        self.num_negative_samples = num_negative_samples
+        self.num_nodes = num_nodes
+        self.EPS = 1e-15
         self.num_users = len(self.user_ids)
         self.num_diners = len(self.diner_ids)
         self.tr_loss = []
+
+        # create embedding for each node
+        self.embedding = Embedding(self.num_nodes, self.embedding_dim)
+
         # store metric value at each epoch
         self.metric_at_k_total_epochs = {
             k: {
@@ -43,13 +60,31 @@ class BaseEmbedding(nn.Module):
             for k in top_k_values
         }
 
-    @abstractmethod
     def forward(self, batch: Tensor) -> Tensor:
-        raise NotImplementedError
+        """
+        Dummy forward pass which actually does not do anything.
 
-    @abstractmethod
+        Args:
+            batch (Tensor): A batch of node ids.
+
+        Returns (Tensor):
+            A batch of node embeddings.
+        """
+        emb = self.embedding.weight
+        return emb if batch is None else emb[batch]
+
     def loader(self, **kwargs) -> DataLoader:
-        raise NotImplementedError
+        """
+        Node id generator in pytorch dataloader type.
+
+        Returns (DataLoader):
+            DataLoader used when training model.
+        """
+        return DataLoader(
+            torch.tensor([node for node in self.graph.nodes()]),
+            collate_fn=self.sample,
+            **kwargs,
+        )
 
     @abstractmethod
     def pos_sample(self, batch: Tensor) -> Tensor:
