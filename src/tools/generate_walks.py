@@ -218,7 +218,7 @@ def generate_walks_metapath(
         meta_path: List[List[str]],
         meta_field: str,
         walks_per_node: int,
-) -> Tuple[Tensor, List[Tuple, int]]:
+) -> Tuple[Tensor, List[Tuple[Tuple[str], int]]]:
     """
     Generate walks given meta_path.
     For each of meta_path, generate random walk based on precomputed probabilities.
