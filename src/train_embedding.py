@@ -11,7 +11,6 @@ from preprocess.preprocess import (
     prepare_networkx_undirected_graph,
 )
 from candidate.near import NearCandidateGenerator
-from tools.utils import get_num_workers
 from tools.plot import plot_metric_at_k
 from tools.parse_args import parse_args_embedding
 from tools.logger import setup_logger
@@ -117,7 +116,6 @@ def main(args: ArgumentParser.parse_args) -> None:
         loader = model.loader(
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=get_num_workers(),
         )
         for epoch in range(args.epochs):
             logger.info(f"################## epoch {epoch} ##################")
