@@ -14,7 +14,7 @@ from torch_geometric.data import Data
 from constant.lib.h3 import RESOLUTION
 from preprocess.feature_store import extract_scores_array, extract_statistics
 from tools.google_drive import ensure_data_files
-from tools.h3 import get_h3_index
+from tools.h3 import get_h3_index, get_hexagon_neighbors
 
 DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../data")
 
@@ -201,11 +201,20 @@ def map_id_to_ascending_integer(
     # metadata preprocessing
     if is_graph_model:
         diner = preprocess_diner_data_for_candidate_generation(diner)
-        meta_ids = sorted(list(diner["metadata_id"].unique()))
+        meta_ids = list(diner["metadata_id"].unique())
+        for meta in diner["metadata_id_neighbors"]:
+            meta_ids.extend(meta)
+        meta_ids = sorted(list(set(meta_ids)))
+
         meta_mapping = {
             meta_id: (i + num_diners + num_users) for i, meta_id in enumerate(meta_ids)
         }
         diner["metadata_id"] = diner["metadata_id"].map(meta_mapping)
+        diner["metadata_id_neighbors"] = diner["metadata_id_neighbors"].map(
+            lambda x: [
+                meta_mapping[meta] for meta in x
+            ]
+        )
     else:
         meta_mapping = None
 
@@ -231,9 +240,19 @@ def preprocess_diner_data_for_candidate_generation(diner: pd.DataFrame) -> pd.Da
     Returns (pd.DataFrame):
         Diner dataset with metadata added.
     """
+    # get diner's h3_index
     diner["h3_index"] = diner.apply(
         lambda row: get_h3_index(row["diner_lat"], row["diner_lon"], RESOLUTION), axis=1
     )
+    # get h3_index neighboring with diner's h3_index and concat with meta field
+    diner["metadata_id_neighbors"] = diner.apply(
+        lambda row: [
+            row["diner_category_large"] + "_" + h3_index
+            for h3_index in get_hexagon_neighbors(row["h3_index"], k=1)
+        ],
+        axis=1
+    )
+    # get current h3_index and concat with meta field
     diner["metadata_id"] = diner.apply(
         lambda row: row["diner_category_large"] + "_" + row["h3_index"], axis=1
     )
@@ -478,11 +497,14 @@ def prepare_networkx_undirected_graph(
 
     # add edge between diner and metadata
     if use_metadata is True:
-        for i, row in diner[["diner_idx", "metadata_id"]].iterrows():
+        for i, row in diner.iterrows():
             diner_idx = row["diner_idx"]
             metadata_id = row["metadata_id"]
             train_graph.add_edge(diner_idx, metadata_id)
             val_graph.add_edge(diner_idx, metadata_id)
+            for meta in row["metadata_id_neighbors"]:
+                train_graph.add_edge(diner_idx, meta)
+                val_graph.add_edge(diner_idx, meta)
 
     # add node and node attribute (user / diner / meta) to networkx graph
     nodes_metadata = {
