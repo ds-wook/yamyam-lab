@@ -14,7 +14,7 @@ from torch_geometric.data import Data
 from constant.lib.h3 import RESOLUTION
 from preprocess.feature_store import extract_scores_array, extract_statistics
 from tools.google_drive import ensure_data_files
-from tools.h3 import get_h3_index
+from tools.h3 import get_h3_index, get_hexagon_neighbors
 
 DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../data")
 
@@ -158,6 +158,7 @@ def map_id_to_ascending_integer(
     review: pd.DataFrame,
     diner: pd.DataFrame,
     is_graph_model: bool = False,
+    category_column_for_meta: str = "diner_category_large",
 ) -> Dict[str, Any]:
     """
     Map reviewer_id, diner_idx to integer in ascending order.
@@ -169,6 +170,7 @@ def map_id_to_ascending_integer(
         diner (pd.DataFrame): Diner dataset.
         is_graph_model (bool): Indicator whether target model is graph based model or not.
             When set true, all the mapped id should be unique.
+        category_column_for_meta (str): Category column name which will be used to generate meta for each node.
 
     Returns (Dict[str, Any]):
         Mapped result.
@@ -200,12 +202,22 @@ def map_id_to_ascending_integer(
 
     # metadata preprocessing
     if is_graph_model:
-        diner = preprocess_diner_data_for_candidate_generation(diner)
-        meta_ids = sorted(list(diner["metadata_id"].unique()))
+        diner = preprocess_diner_data_for_candidate_generation(
+            diner=diner,
+            category_column_for_meta=category_column_for_meta,
+        )
+        meta_ids = list(diner["metadata_id"].unique())
+        for meta in diner["metadata_id_neighbors"]:
+            meta_ids.extend(meta)
+        meta_ids = sorted(list(set(meta_ids)))
+
         meta_mapping = {
             meta_id: (i + num_diners + num_users) for i, meta_id in enumerate(meta_ids)
         }
         diner["metadata_id"] = diner["metadata_id"].map(meta_mapping)
+        diner["metadata_id_neighbors"] = diner["metadata_id_neighbors"].map(
+            lambda x: [meta_mapping[meta] for meta in x]
+        )
     else:
         meta_mapping = None
 
@@ -214,27 +226,42 @@ def map_id_to_ascending_integer(
         "diner": diner,
         "num_diners": num_diners,
         "num_users": num_users,
+        "num_metas": len(meta_mapping) if meta_mapping else 0,
         "diner_mapping": diner_mapping,
         "user_mapping": reviewer_mapping,
         "meta_mapping": meta_mapping,
     }
 
 
-def preprocess_diner_data_for_candidate_generation(diner: pd.DataFrame) -> pd.DataFrame:
+def preprocess_diner_data_for_candidate_generation(
+    diner: pd.DataFrame,
+    category_column_for_meta: str = None,
+) -> pd.DataFrame:
     """
     Additional preprocessing when metadata is integrated to graph based model.
 
     Args:
         diner (pd.DataFrame): Diner dataset
+        category_column_for_meta (str): Category column name which will be used to generate meta for each node.
 
     Returns (pd.DataFrame):
         Diner dataset with metadata added.
     """
+    # get diner's h3_index
     diner["h3_index"] = diner.apply(
         lambda row: get_h3_index(row["diner_lat"], row["diner_lon"], RESOLUTION), axis=1
     )
+    # get h3_index neighboring with diner's h3_index and concat with meta field
+    diner["metadata_id_neighbors"] = diner.apply(
+        lambda row: [
+            row[category_column_for_meta] + "_" + h3_index
+            for h3_index in get_hexagon_neighbors(row["h3_index"], k=1)
+        ],
+        axis=1,
+    )
+    # get current h3_index and concat with meta field
     diner["metadata_id"] = diner.apply(
-        lambda row: row["diner_category_large"] + "_" + row["h3_index"], axis=1
+        lambda row: row[category_column_for_meta] + "_" + row["h3_index"], axis=1
     )
     return diner
 
@@ -260,6 +287,7 @@ def train_test_split_stratify(
     random_state: int = 42,
     stratify: str = "reviewer_id",
     is_graph_model: bool = False,
+    category_column_for_meta: str = "diner_category_large",
     test: bool = False,
     is_rank: bool = False,
 ) -> Dict[str, Any]:
@@ -277,12 +305,14 @@ def train_test_split_stratify(
         stratify (str): reference column when stratifying review data.
         is_graph_model (bool): indicator whether using graph based model or not.
             When set true, all the mapped index should be unique in ascending order.
+        category_column_for_meta (str): Category column name which will be used to generate meta for each node.
         test (bool): indicator whether under pytest. when set true, use part of total dataset.
 
     Returns (Dict[str, Any]):
         Dataset, statistics, and mapping information which could be used when training model.
     """
     review, diner, diner_with_raw_category = load_dataset(test=test)
+    assert category_column_for_meta in diner.columns
     review, diner = preprocess_common(
         review=review,
         diner=diner,
@@ -293,6 +323,7 @@ def train_test_split_stratify(
         review=review,
         diner=diner,
         is_graph_model=is_graph_model,
+        category_column_for_meta=category_column_for_meta,
     )
 
     review = mapped_res.get("review")
@@ -423,6 +454,9 @@ def prepare_networkx_undirected_graph(
     X_val: Tensor,
     y_val: Tensor,
     diner: pd.DataFrame,
+    user_mapping: Dict[int, int],
+    diner_mapping: Dict[int, int],
+    meta_mapping: Dict[int, int],
     weighted: bool = False,
     use_metadata: bool = False,
 ) -> Tuple[nx.Graph, nx.Graph]:
@@ -446,6 +480,9 @@ def prepare_networkx_undirected_graph(
         X_val (Tensor): input features used when validating model.
         y_val (Tensor): target features, which is usually used for edged weight in validation data.
         diner (pd.DataFrame): diner dataset consisting of diner_id and metadata_id.
+        user_mapping (Dict[int, int]): dictionary mapping original user_id to descending integer.
+        diner_mapping (Dict[int, int]): dictionary mapping original diner_id to descending integer.
+        meta_mapping (Dict[int, int]): dictionary mapping original meta_id to descending integer.
         weighted (bool): whether setting edge weight or not.
         use_metadata (bool): whether to use metadata or not.
 
@@ -474,10 +511,22 @@ def prepare_networkx_undirected_graph(
 
     # add edge between diner and metadata
     if use_metadata is True:
-        for i, row in diner[["diner_idx", "metadata_id"]].iterrows():
+        for i, row in diner.iterrows():
             diner_idx = row["diner_idx"]
             metadata_id = row["metadata_id"]
             train_graph.add_edge(diner_idx, metadata_id)
             val_graph.add_edge(diner_idx, metadata_id)
+            for meta in row["metadata_id_neighbors"]:
+                train_graph.add_edge(diner_idx, meta)
+                val_graph.add_edge(diner_idx, meta)
+
+    # add node and node attribute (user / diner / meta) to networkx graph
+    nodes_metadata = {
+        **{user_id: {"meta": "user"} for _, user_id in user_mapping.items()},
+        **{diner_id: {"meta": "diner"} for _, diner_id in diner_mapping.items()},
+        **{meta_id: {"meta": "category"} for _, meta_id in meta_mapping.items()},
+    }
+    nx.set_node_attributes(train_graph, nodes_metadata)
+    nx.set_node_attributes(val_graph, nodes_metadata)
 
     return train_graph, val_graph

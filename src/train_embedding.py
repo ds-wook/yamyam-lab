@@ -23,7 +23,6 @@ from preprocess.preprocess import (
 from tools.logger import setup_logger
 from tools.parse_args import parse_args_embedding
 from tools.plot import plot_metric_at_k
-from tools.utils import get_num_workers
 
 
 def main(args: ArgumentParser.parse_args) -> None:
@@ -36,13 +35,19 @@ def main(args: ArgumentParser.parse_args) -> None:
         logger.info(f"learning rate: {args.lr}")
         logger.info(f"epochs: {args.epochs}")
         logger.info(f"embedding dimension: {args.embedding_dim}")
-        logger.info(f"walk length: {args.walk_length}")
         logger.info(f"walks per node: {args.walks_per_node}")
         logger.info(f"num neg samples: {args.num_negative_samples}")
-        logger.info(f"p: {args.p}")
-        logger.info(f"q: {args.q}")
-        logger.info(f"result path: {args.result_path}")
         logger.info(f"weighted edge: {args.weighted_edge}")
+        if args.model == "node2vec":
+            logger.info(f"walk length: {args.walk_length}")
+            logger.info(f"p: {args.p}")
+            logger.info(f"q: {args.q}")
+        elif args.model == "metapath2vec":
+            logger.info(f"defined meta_path: {args.meta_path}")
+            logger.info(
+                f"category column for node meta: {args.category_column_for_meta}"
+            )
+        logger.info(f"result path: {args.result_path}")
         logger.info(f"test: {args.test}")
 
         data = train_test_split_stratify(
@@ -51,6 +56,7 @@ def main(args: ArgumentParser.parse_args) -> None:
             X_columns=["diner_idx", "reviewer_id"],
             y_columns=["reviewer_review_score"],
             is_graph_model=True,
+            category_column_for_meta=args.category_column_for_meta,
             test=args.test,
         )
         train_graph, val_graph = prepare_networkx_undirected_graph(
@@ -59,6 +65,9 @@ def main(args: ArgumentParser.parse_args) -> None:
             X_val=data["X_val"],
             y_val=data["y_val"],
             diner=data["diner"],
+            user_mapping=data["user_mapping"],
+            diner_mapping=data["diner_mapping"],
+            meta_mapping=data["meta_mapping"],
             weighted=args.weighted_edge,
             use_metadata=args.use_metadata,
         )
@@ -68,7 +77,7 @@ def main(args: ArgumentParser.parse_args) -> None:
             data, open(os.path.join(args.result_path, FileName.DATA_OBJECT.value), "wb")
         )
 
-        num_nodes = data["num_users"] + data["num_diners"]
+        num_nodes = data["num_users"] + data["num_diners"] + data["num_metas"]
         top_k_values = TOP_K_VALUES_FOR_PRED + TOP_K_VALUES_FOR_CANDIDATE
 
         # import embedding module
@@ -86,6 +95,7 @@ def main(args: ArgumentParser.parse_args) -> None:
             q=args.q,
             p=args.p,
             top_k_values=top_k_values,
+            meta_path=args.meta_path,
         ).to(DEVICE)
         optimizer = torch.optim.Adam(list(model.parameters()), lr=args.lr)
 
@@ -112,7 +122,6 @@ def main(args: ArgumentParser.parse_args) -> None:
         loader = model.loader(
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=get_num_workers(),
         )
         for epoch in range(args.epochs):
             logger.info(f"################## epoch {epoch} ##################")
