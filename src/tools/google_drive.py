@@ -167,15 +167,16 @@ def get_file_paths(directory_path: str) -> Dict[str, Dict[str, str]]:
         base_name = re.sub(r'_\d{8}', '', file_name)  # 날짜 부분 제거
 
         if base_name:
+            # TODO: data version 관리
             # 날짜 패턴 찾기 (YYYYMMDD)
-            date_match = re.search(r'_(\d{8})', file_name)
+            # date_match = re.search(r'_(\d{8})', file_name)
 
-            if date_match:
-                version = date_match.group(1)
-            else:
-                # raw 버전 확인
-                raw_match = re.search(r'_raw', file_name)
-                version = 'raw' if raw_match else 'default'
+            # if date_match:
+            #     version = date_match.group(1)
+            # else:
+            #     # raw 버전 확인
+            #     raw_match = re.search(r'_raw', file_name)
+            #     version = 'raw' if raw_match else 'default'
             
             new_file_name = f"{base_name}{file_path.suffix}"
             new_file_path = file_path.parent / new_file_name
