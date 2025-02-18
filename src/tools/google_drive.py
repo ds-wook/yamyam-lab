@@ -181,6 +181,10 @@ def get_file_paths(directory_path: str) -> Dict[str, Dict[str, str]]:
             new_file_name = f"{base_name}{file_path.suffix}"
             new_file_path = file_path.parent / new_file_name
 
+            # TODO: 하드코딩 수정
+            if "category" in base_name:
+                base_name = "category"
+
             result[base_name] = str(new_file_path.absolute())
 
     return result
