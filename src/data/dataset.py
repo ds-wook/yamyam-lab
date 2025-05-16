@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Self, Tuple
@@ -21,83 +22,92 @@ from tools.google_drive import ensure_data_files
 from tools.utils import reduce_mem_usage
 
 
+@dataclass
+class DataConfig:
+    features: List[str] = None
+    cat_features: List[str] = None
+    user_engineered_feature_names: Dict[str, Dict[str, Any]] = None
+    diner_engineered_feature_names: Dict[str, Dict[str, Any]] = None
+    X_columns: List[str] = None
+    y_columns: List[str] = None
+    category_column_for_meta: str = "diner_category_large"
+    num_neg_samples: int = 10
+    sampling_type: str = "popularity"
+    test_size: float = 0.4
+    min_reviews: int = 3
+    random_state: int = 42
+    stratify: str = "reviewer_id"
+    is_timeseries_by_users: bool = False
+    is_timeseries_by_time_point: bool = True
+    train_time_point: str = "2024-01-01"
+    test_time_point: str = "2024-06-01"
+    val_time_point: str = "2024-03-01"
+    end_time_point: str = "2024-12-31"
+    is_graph_model: bool = False
+    is_candidate_dataset: bool = False
+    test: bool = False
+
+    def __post_init__(self: Self):
+        self.user_engineered_feature_names = self.user_engineered_feature_names or {}
+        self.diner_engineered_feature_names = self.diner_engineered_feature_names or {}
+        self.X_columns = self.X_columns or ["diner_idx", "reviewer_id"]
+        self.y_columns = self.y_columns or ["reviewer_review_score"]
+
+
 class DatasetLoader:
-    def __init__(
-        self: Self,
-        test_size: float = None,
-        min_reviews: int = None,
-        user_engineered_feature_names: Dict[str, Dict[str, Any]] = {},
-        diner_engineered_feature_names: Dict[str, Dict[str, Any]] = {},
-        X_columns: List[str] = ["diner_idx", "reviewer_id"],
-        y_columns: List[str] = ["reviewer_review_score"],
-        num_neg_samples: int = 10,
-        random_state: int = 42,
-        stratify: str = "reviewer_id",
-        sampling_type: str = "popularity",
-        is_timeseries_by_users: bool = False,
-        is_timeseries_by_time_point: bool = False,
-        train_time_point: str = None,
-        test_time_point: str = None,
-        val_time_point: str = None,
-        end_time_point: str = None,
-        is_graph_model: bool = False,
-        is_candidate_dataset: bool = False,
-        category_column_for_meta: str = "diner_category_large",
-        test: bool = False,
-    ):
+    def __init__(self: Self, data_config: DataConfig = DataConfig()):
         """
         Initialize the DatasetLoader class.
 
         There are 3 types of strategies when splitting reviews into train / test.
             Case 1) is_timeseries_by_users == False & is_timeseries_by_time_point == False
-                -> split reviews stratified with reviewer_id without considering timeseries
+                -> Split reviews stratified with reviewer_id without considering timeseries
             Case 2) is_timeseries_by_users == True & is_timeseries_by_time_point == False
-                -> split reviews into train / test considering timeseries within each user
+                -> Split reviews into train / test considering timeseries within each user
             Case 3) is_timeseries_by_users == False & is_timeseries_by_time_point == True
-                -> split reviews into train / test based on a specific time point
+                -> Split reviews into train / test based on a specific time point
                 if val_time_point is not None:
                     train_time_point <= dt < val_time_point : train dataset
-                    val_time_pint <= dt < test_time_point : val dataset
+                    val_time_point <= dt < test_time_point : val dataset
                     test_time_point <= dt < end_time_point : test dataset
                 else:
                     train_time_point <= dt < test_time_point : train dataset
                     test_time_point <= dt < end_time_point : test dataset
             Case 4) is_timeseries_by_users == True & is_timeseries_by_time_point == True
-                -> will raise error
+                -> Will raise error
 
         Args:
-            test_size: float
-            min_reviews: int
-            user_engineered_feature_names: Dict[str, Dict[str, Any]]
-            diner_engineered_feature_names: Dict[str, Dict[str, Any]]
-            X_columns: List[str]
-            y_columns: List[str]
-            random_state: int
-            stratify: str
-            is_graph_model: bool
-            category_column_for_meta: str
-            test: bool
+            data_config: Configuration for dataset loading including features, splitting strategy,
+                        sampling parameters and model settings
         """
-        self.test_size = test_size
-        self.min_reviews = min_reviews
-        self.user_engineered_feature_names = user_engineered_feature_names
-        self.diner_engineered_feature_names = diner_engineered_feature_names
-        self.X_columns = X_columns
-        self.y_columns = y_columns
-        self.num_neg_samples = num_neg_samples
-        self.random_state = random_state
-        self.stratify = stratify
-        self.is_graph_model = is_graph_model
-        self.is_timeseries_by_users = is_timeseries_by_users
-        self.is_timeseries_by_time_point = is_timeseries_by_time_point
-        self.train_time_point = train_time_point
-        self.val_time_point = val_time_point
-        self.test_time_point = test_time_point
-        self.end_time_point = end_time_point
-        self.is_candidate_dataset = is_candidate_dataset
-        self.category_column_for_meta = category_column_for_meta
-        self.test = test
-        self.sampling_type = sampling_type
+        self.data_config = data_config
+
+        # Set instance attributes for backward compatibility
+        self.test_size = self.data_config.test_size
+        self.min_reviews = self.data_config.min_reviews
+        self.user_engineered_feature_names = (
+            self.data_config.user_engineered_feature_names
+        )
+        self.diner_engineered_feature_names = (
+            self.data_config.diner_engineered_feature_names
+        )
+        self.X_columns = self.data_config.X_columns
+        self.y_columns = self.data_config.y_columns
+        self.num_neg_samples = self.data_config.num_neg_samples
+        self.random_state = self.data_config.random_state
+        self.stratify = self.data_config.stratify
+        self.sampling_type = self.data_config.sampling_type
+        self.is_timeseries_by_users = self.data_config.is_timeseries_by_users
+        self.is_timeseries_by_time_point = self.data_config.is_timeseries_by_time_point
+        self.train_time_point = self.data_config.train_time_point
+        self.test_time_point = self.data_config.test_time_point
+        self.val_time_point = self.data_config.val_time_point
+        self.end_time_point = self.data_config.end_time_point
+        self.is_graph_model = self.data_config.is_graph_model
+        self.is_candidate_dataset = self.data_config.is_candidate_dataset
+        self.category_column_for_meta = self.data_config.category_column_for_meta
+        self.test = self.data_config.test
+
         self.data_paths = ensure_data_files()
         self.candidate_paths = Path("candidates/node2vec")
 
