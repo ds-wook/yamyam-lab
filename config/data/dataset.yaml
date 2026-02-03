@@ -9,6 +9,12 @@ user_engineered_feature_names:
   categorical_feature_count:
     categorical_feature_names:
       - diner_category_large
+      - diner_category_middle
+  # CatBoost cat_features용: 대/중분류별 주요 카테고리(정수 코드)
+  primary_category_large:
+    output_column: reviewer_primary_category_large
+  primary_category_middle:
+    output_column: reviewer_primary_category_middle
   user_activity_patterns: {}
 
 diner_engineered_feature_names:

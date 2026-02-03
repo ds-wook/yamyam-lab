@@ -40,6 +40,8 @@ class UserFeatureStore(BaseFeatureStore):
         )
         self.feature_methods = {
             "categorical_feature_count": self.calculate_categorical_feature_count,
+            "primary_category_large": self.calculate_primary_category_large,
+            "primary_category_middle": self.calculate_primary_category_middle,
             "user_mean_review_score": self.calculate_user_mean_review_score,
             "user_activity_patterns": self.calculate_activity_patterns,
             # "scaled_scores": self.calculate_scaled_scores,
@@ -65,8 +67,9 @@ class UserFeatureStore(BaseFeatureStore):
             "양식": "western",
             "간식": "snack",
             "아시아음식": "asian",
-            "패스트푸드": "fastfood",
-            "디저트": "dessert",
+            "분식": "bunsik",
+            "기타": "etc",
+            "술집": "bar",
             "카페": "cafe",
         }
 
@@ -101,18 +104,72 @@ class UserFeatureStore(BaseFeatureStore):
                 .unstack(fill_value=0)
                 .reset_index()
             )
-
             category_feat.columns = [
                 self.feature_dict.get(col, 0) if col in self.feature_dict else col
                 for col in category_feat.columns
             ]
-
             self.user = pd.merge(
                 left=self.user,
                 right=category_feat,
                 how="left",
                 on="reviewer_id",
             )
+
+    def _calculate_primary_category_from_counts(
+        self: Self,
+        category_cols: List[str],
+        output_column: str,
+    ) -> None:
+        """Count 컬럼에서 argmax로 primary category 정수 코드 생성. category_cols는 정렬된 리스트."""
+        if not category_cols:
+            raise ValueError(
+                "category_cols must be non-empty. Run categorical_feature_count first."
+            )
+        max_count = self.user[category_cols].max(axis=1)
+        idx_max = self.user[category_cols].idxmax(axis=1)
+        primary_label = idx_max.where(max_count > 0, "unknown")
+        code_list = ["unknown"] + category_cols
+        category_codes = {name: i for i, name in enumerate(code_list)}
+        self.user[output_column] = (
+            primary_label.map(category_codes).fillna(0).astype("int64")
+        )
+
+    def calculate_primary_category_large(
+        self: Self,
+        output_column: str = "reviewer_primary_category_large",
+        **kwargs,
+    ) -> None:
+        """
+        사용자별 주요 대분류 카테고리(정수 코드). CatBoost cat_features용.
+        categorical_feature_count에서 diner_category_large 실행 후 호출.
+        """
+        category_cols = [
+            c for c in sorted(self.feature_dict.values()) if c in self.user.columns
+        ]
+        self._calculate_primary_category_from_counts(
+            category_cols=category_cols,
+            output_column=output_column,
+        )
+
+    def calculate_primary_category_middle(
+        self: Self,
+        output_column: str = "reviewer_primary_category_middle",
+        **kwargs,
+    ) -> None:
+        """
+        사용자별 주요 중분류 카테고리(정수 코드). CatBoost cat_features용.
+        categorical_feature_count에서 diner_category_middle 실행 후 호출.
+        """
+        # feature_dict에 없는 컬럼 = diner_category_middle unstack으로 생긴 컬럼
+        category_cols = sorted(
+            c
+            for c in self.user.columns
+            if c != "reviewer_id" and c not in self.feature_dict.values()
+        )
+        self._calculate_primary_category_from_counts(
+            category_cols=category_cols,
+            output_column=output_column,
+        )
 
     def calculate_user_mean_review_score(self: Self, **kwargs) -> None:
         """

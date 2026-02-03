@@ -30,8 +30,17 @@ def test_loader_dataset(mock_load_dataset):
                 y_columns=["reviewer_review_score"],
                 user_engineered_feature_names={
                     "categorical_feature_count": {
-                        "categorical_feature_names": ["diner_category_large"]
-                    }
+                        "categorical_feature_names": [
+                            "diner_category_large",
+                            "diner_category_middle",
+                        ]
+                    },
+                    "primary_category_large": {
+                        "output_column": "reviewer_primary_category_large"
+                    },
+                    "primary_category_middle": {
+                        "output_column": "reviewer_primary_category_middle"
+                    },
                 },
                 diner_engineered_feature_names={
                     "all_review_cnt": {},

@@ -18,10 +18,19 @@ features:
   - chinese
   - korean
   - western
+  - cafe
+  - snack
+  - bunsik
+  - etc
+  - bar
+  - reviewer_primary_category_large
+  - reviewer_primary_category_middle
 
 cat_features:
   - open_days_per_week
   - is_open_weekend
+  - reviewer_primary_category_large
+  - reviewer_primary_category_middle
 
 params:
   objective: lambdarank

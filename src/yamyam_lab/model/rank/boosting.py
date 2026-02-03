@@ -146,11 +146,18 @@ class CatBoostRankerTrainer(BaseModel):
         return X_train["reviewer_id"].to_numpy()
 
     def _prepare_cat_features(self: Self, X: pd.DataFrame) -> pd.DataFrame:
-        """CatBoost cat_features는 int/str만 허용. float·NaN은 str로 통일."""
+        """CatBoost cat_features는 int/str만 허용. 숫자형은 int, 문자열형은 str로 통일."""
         X = X.copy()
         for col in self.cat_features:
-            if col in X.columns:
-                X[col] = X[col].astype(int)
+            if col not in X.columns:
+                continue
+            s = X[col]
+            if pd.api.types.is_string_dtype(s) or (
+                s.dtype == object and not pd.api.types.is_numeric_dtype(s)
+            ):
+                X[col] = s.fillna("__unknown__").astype(str)
+            else:
+                X[col] = s.fillna(-1).astype(int)
         return X
 
     def _fit(
